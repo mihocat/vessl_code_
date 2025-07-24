@@ -257,7 +257,7 @@ class ConcreteKoreanElectricalRAG:
         """웹 검색 보조"""
         try:
             with DDGS() as ddgs:
-                enhanced_query = f"{query} 전기공학 전기기사 한국"
+                enhanced_query = f"다산에듀 {query}"
                 web_results = list(ddgs.text(enhanced_query, region="ko-kr", max_results=max_results))
                 
                 processed_results = []
