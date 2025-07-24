@@ -166,7 +166,7 @@ def create_gradio_interface(service: RAGService):
             user_id = f"user_{len(history) % 100}"
             return service.process_query(message, user_id)
     
-    # ChatInterface 사용으로 i18n 문제 회피
+    # ChatInterface 사용으로 i18n 문제 회피 (호환성 매개변수만 사용)
     demo = gr.ChatInterface(
         fn=handle_query,
         title="🔌 전기공학 AI 상담서비스",
@@ -177,12 +177,8 @@ def create_gradio_interface(service: RAGService):
             "/통계",
             "/도움"
         ],
-        retry_btn=None,
-        undo_btn=None,
-        clear_btn="대화 초기화",
-        submit_btn="전송",
         theme=gr.themes.Default(),
-        chatbot=gr.Chatbot(height=500, show_copy_button=True),
+        chatbot=gr.Chatbot(height=500, show_copy_button=True, type="tuples"),
         textbox=gr.Textbox(placeholder="질문을 입력하세요...", container=False, scale=7),
     )
     
