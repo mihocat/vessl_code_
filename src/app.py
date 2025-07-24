@@ -176,7 +176,7 @@ def create_gradio_interface(service: RAGService):
         # 히스토리 업데이트 (tuple 형식으로 변경)
         history.append((message, response))
         
-        return history, ""
+        return history, history
     
     # 간단한 인터페이스로 변경
     demo = gr.Interface(
@@ -186,8 +186,8 @@ def create_gradio_interface(service: RAGService):
             gr.State(value=[])
         ],
         outputs=[
-            gr.Chatbot(label="AI 상담사", height=400),
-            gr.Textbox(visible=False)
+            gr.Chatbot(label="AI 상담사", height=400, type="tuples"),
+            gr.State()
         ],
         title="🔌 전기공학 AI 상담서비스",
         description="전기공학 전문 지식과 실시간 웹검색을 통해 답변드립니다.",
