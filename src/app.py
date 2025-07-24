@@ -226,7 +226,15 @@ def main():
     logger.info("Gradio 인터페이스 시작...")
     import os
     port = int(os.environ.get("GRADIO_SERVER_PORT", "7860"))
-    app.launch(server_name="0.0.0.0", server_port=port, share=False)
+    app.launch(
+        server_name="0.0.0.0", 
+        server_port=port, 
+        share=False,
+        show_error=True,
+        quiet=False,
+        inbrowser=False,
+        prevent_thread_lock=False
+    )
 
 
 if __name__ == "__main__":
