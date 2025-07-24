@@ -166,48 +166,40 @@ def create_gradio_interface(service: RAGService):
             user_id = f"user_{len(history) % 100}"
             return service.process_query(message, user_id)
     
-    with gr.Blocks(theme=gr.themes.Soft()) as demo:
-        gr.Markdown("# 통합 서비스")
+    def chat_interface(message, history):
+        if not history:
+            history = []
         
-        with gr.Row():
-            with gr.Column(scale=3):
-                chatbot = gr.Chatbot(
-                    height=500,
-                    show_label=False,
-                    elem_id="chatbot",
-                    type="messages"
-                )
-                msg = gr.Textbox(
-                    label="질문 입력",
-                    placeholder="질문을 입력하세요...",
-                    lines=2
-                )
-                with gr.Row():
-                    submit = gr.Button("전송", variant="primary")
-                    clear = gr.Button("대화 초기화")
-            
-            with gr.Column(scale=1):                
-                gr.Markdown("### 예시")
-                examples = gr.Examples(
-                    examples=[
-                        "옴의 법칙을 쉽게 설명해주세요",
-                        "/통계",
-                        "/도움"
-                    ],
-                    inputs=msg
-                )
+        # 응답 생성
+        response = handle_query(message, history)
         
-        def user_submit(message, history):
-            history = history or []
-            response = handle_query(message, history)
-            history.append({"role": "user", "content": message})
-            history.append({"role": "assistant", "content": response})
-            return "", history
+        # 히스토리 업데이트 (tuple 형식으로 변경)
+        history.append((message, response))
         
-        msg.submit(user_submit, [msg, chatbot], [msg, chatbot])
-        submit.click(user_submit, [msg, chatbot], [msg, chatbot])
-        clear.click(lambda: [], None, chatbot, queue=False)
-        gr.Markdown("---")    
+        return history, ""
+    
+    # 간단한 인터페이스로 변경
+    demo = gr.Interface(
+        fn=lambda message, history: chat_interface(message, history or []),
+        inputs=[
+            gr.Textbox(label="질문 입력", placeholder="질문을 입력하세요..."),
+            gr.State(value=[])
+        ],
+        outputs=[
+            gr.Chatbot(label="AI 상담사", height=400),
+            gr.Textbox(visible=False)
+        ],
+        title="🔌 전기공학 AI 상담서비스",
+        description="전기공학 전문 지식과 실시간 웹검색을 통해 답변드립니다.",
+        examples=[
+            "옴의 법칙을 쉽게 설명해주세요",
+            "/통계",
+            "/도움"
+        ],
+        allow_flagging="never",
+        theme=gr.themes.Default()
+    )
+    
     return demo
 
 
@@ -233,7 +225,10 @@ def main():
         show_error=True,
         quiet=False,
         inbrowser=False,
-        prevent_thread_lock=False
+        prevent_thread_lock=False,
+        favicon_path=None,
+        ssl_verify=False,
+        allowed_paths=[]
     )
 
 
