@@ -38,7 +38,7 @@ class LLMClient:
         """LLM 질의"""
         try:
             # 시스템 역할 정의
-            system_role = "당신은 한국의 전기공학 전문가이자 친절한 상담사입니다. 정확하고 이해하기 쉬운 설명을 제공하며, 실무적인 조언도 함께 제공합니다."
+            system_role = "당신은 AI 상담사입니다. 정확하고 이해하기 쉬운 설명을 제공합니다."
             
             # 프롬프트 구성
             if context:
@@ -66,11 +66,11 @@ class LLMClient:
             if response.status_code == 200:
                 return response.json()["choices"][0]["text"].strip()
             else:
-                return "죄송합니다. 전문가 시스템에 일시적인 문제가 있습니다. 잠시 후 다시 시도해주세요."
+                return "일시적인 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
                 
         except Exception as e:
             logger.error(f"LLM 질의 실패: {str(e)}")
-            return "죄송합니다. 시스템 연결에 문제가 발생했습니다."
+            return "연결에 문제가 발생했습니다."
     
     def wait_for_server(self, max_attempts: int = 30, delay: int = 3) -> bool:
         """서버 준비 대기"""

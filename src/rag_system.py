@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class ConcreteKoreanElectricalRAG:
-    """구체적인 한국어 전기공학 통합 RAG 시스템"""
+    """통합 RAG 시스템"""
     
     def __init__(self, embedding_model_name: str = "jhgan/ko-sroberta-multitask"):
         """
