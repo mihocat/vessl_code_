@@ -222,7 +222,9 @@ def main():
     # Gradio 인터페이스 실행
     app = create_gradio_interface(service)
     logger.info("Gradio 인터페이스 시작...")
-    app.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    import os
+    port = int(os.environ.get("GRADIO_SERVER_PORT", "7860"))
+    app.launch(server_name="0.0.0.0", server_port=port, share=False)
 
 
 if __name__ == "__main__":
