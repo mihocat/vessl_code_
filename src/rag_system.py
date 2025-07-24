@@ -60,7 +60,7 @@ class ConcreteKoreanElectricalRAG:
         
         logger.info("ConcreteKoreanElectricalRAG 초기화 완료")
     
-    def load_documents_from_dataset(self, dataset_path: str = "/dataset", max_docs: int = 3000):
+    def load_documents_from_dataset(self, dataset_path: str = "/dataset", max_docs: int = 6000):
         """데이터셋에서 문서 로드 및 벡터화"""
         docs_count = 0
         categories = defaultdict(int)

@@ -174,7 +174,8 @@ def create_gradio_interface(service: RAGService):
                 chatbot = gr.Chatbot(
                     height=500,
                     show_label=False,
-                    elem_id="chatbot"
+                    elem_id="chatbot",
+                    type="messages"
                 )
                 msg = gr.Textbox(
                     label="질문 입력",
@@ -199,12 +200,13 @@ def create_gradio_interface(service: RAGService):
         def user_submit(message, history):
             history = history or []
             response = handle_query(message, history)
-            history.append([message, response])
+            history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": response})
             return "", history
         
         msg.submit(user_submit, [msg, chatbot], [msg, chatbot])
         submit.click(user_submit, [msg, chatbot], [msg, chatbot])
-        clear.click(lambda: None, None, chatbot, queue=False)
+        clear.click(lambda: [], None, chatbot, queue=False)
         gr.Markdown("---")    
     return demo
 
