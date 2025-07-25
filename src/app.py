@@ -165,14 +165,8 @@ def create_gradio_interface(service: RAGService):
     
     demo = gr.ChatInterface(
         fn=handle_query,
-        title="🔌 전기공학 AI 상담서비스",
-        description="전기공학 전문 지식과 실시간 웹검색을 통해 답변드립니다.",
-        examples=[
-            "옴의 법칙을 쉽게 설명해주세요",
-            "전력공학에 대해 알려주세요",
-            "/통계",
-            "/도움"
-        ],
+        title="service_test",
+        description="테스트",
         theme=gr.themes.Default(),
         chatbot=gr.Chatbot(height=500, show_copy_button=True, type="messages"),
         textbox=gr.Textbox(placeholder="질문을 입력하세요...", container=False, scale=7),
