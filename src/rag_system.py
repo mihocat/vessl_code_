@@ -192,74 +192,185 @@ class ConcreteKoreanElectricalRAG:
         logger.info(f"전기공학 지식베이스 구축 완료: {len(texts)}개 문서")
     
     def search_vector_database(self, query: str, k: int = 5) -> tuple:
-        """지능형 벡터 검색"""
+        """고도화된 벡터 검색 시스템"""
         try:
-            # 쿼리 카테고리 추정
-            query_category = self._categorize_document(query)
+            # 쿼리 전처리 및 확장
+            enhanced_queries = self._expand_query(query)
+            query_category = self._advanced_categorize_document(query)
             
-            # 벡터 검색
-            query_embedding = self.embedding_model.encode([query], convert_to_tensor=True)
-            query_embedding_np = query_embedding.cpu().numpy()
+            best_results = []
             
-            results = self.collection.query(
-                query_embeddings=query_embedding_np.tolist(),
-                n_results=k * 2  # 더 많이 가져와서 필터링
-            )
+            # 다중 쿼리 전략
+            for enhanced_query in enhanced_queries:
+                query_embedding = self.embedding_model.encode([enhanced_query], convert_to_tensor=True)
+                query_embedding_np = query_embedding.cpu().numpy()
+                
+                results = self.collection.query(
+                    query_embeddings=query_embedding_np.tolist(),
+                    n_results=k * 3,  # 더 많이 가져와서 고품질 필터링
+                    include=['distances', 'documents', 'metadatas']
+                )
+                
+                if results["documents"] and len(results["documents"]) > 0:
+                    documents = results["documents"][0]
+                    distances = results["distances"][0]
+                    ids = results["ids"][0]
+                    
+                    # 고도화된 점수 계산
+                    for doc, distance, doc_id in zip(documents, distances, ids):
+                        doc_info = self._get_document_info(doc_id)
+                        if not doc_info:
+                            continue
+                            
+                        # 다중 지표 기반 점수
+                        scores = self._calculate_multi_score(query, enhanced_query, doc, doc_info, distance, query_category)
+                        
+                        # 고품질 결과만 선별
+                        if scores['final_score'] > 0.65:  # 더 엄격한 임계값
+                            best_results.append({
+                                "content": doc,
+                                "doc_info": doc_info,
+                                "scores": scores,
+                                "similarity": scores['cosine_similarity'],
+                                "final_score": scores['final_score'],
+                                "query_type": enhanced_query
+                            })
             
-            if results["documents"] and len(results["documents"]) > 0:
-                documents = results["documents"][0]
-                distances = results["distances"][0] if "distances" in results else [1.0] * len(documents)
-                ids = results["ids"][0] if "ids" in results else []
-                
-                # 관련성 점수 계산 및 필터링
-                relevant_docs = []
-                for doc, distance, doc_id in zip(documents, distances, ids):
-                    similarity = 1 - distance
-                    
-                    # 문서 정보 가져오기
-                    doc_info = None
-                    for d in self.documents:
-                        if d["id"] == doc_id:
-                            doc_info = d
-                            break
-                    
-                    # 카테고리 보너스
-                    category_bonus = 0.1 if doc_info and doc_info["category"] == query_category else 0
-                    
-                    # 키워드 매칭 보너스
-                    keyword_bonus = sum(0.05 for word in query.split() if len(word) > 1 and word in doc)
-                    
-                    # 최종 점수
-                    final_score = similarity + category_bonus + keyword_bonus
-                    
-                    # 임계값 이상만 추가 (더 관대한 설정으로 조정)
-                    if similarity > 0.4 or final_score > 0.5:
-                        relevant_docs.append({
-                            "content": doc,
-                            "similarity": similarity,
-                            "final_score": final_score,
-                            "doc_info": doc_info
-                        })
-                
-                # 점수순 정렬
-                relevant_docs.sort(key=lambda x: x["final_score"], reverse=True)
-                
-                if relevant_docs:
-                    self.service_stats["db_hits"] += 1
-                    return relevant_docs[:k], True
+            # 중복 제거 및 정렬
+            unique_results = self._deduplicate_results(best_results)
+            unique_results.sort(key=lambda x: x["final_score"], reverse=True)
+            
+            if unique_results:
+                self.service_stats["db_hits"] += 1
+                return unique_results[:k], True
             
             return [], False
         except Exception as e:
-            logger.error(f"지능형 검색 실패: {str(e)}")
+            logger.error(f"벡터 검색 실패: {str(e)}")
             return [], False
     
+    def _expand_query(self, query: str) -> List[str]:
+        """쿼리 확장 및 다중 버전 생성"""
+        queries = [query]  # 원본 쿼리
+        
+        # 전기공학 동의어 확장
+        synonyms = {
+            '전압': ['볼트', 'V', '전위차'],
+            '전류': ['암페어', 'A', '전류값'],
+            '저항': ['오예', 'Ω', 'R'],
+            '변압기': ['트랜스포머', '전력변압기'],
+            '모터': ['전동기', '유도전동기'],
+            '발전기': ['동기', '제너레이터']
+        }
+        
+        for word, alternatives in synonyms.items():
+            if word in query:
+                for alt in alternatives:
+                    queries.append(query.replace(word, alt))
+        
+        # 기술적 맥락 추가
+        if any(term in query for term in ['계산', '구하기', '방법']):
+            queries.append(f"{query} 공식 단계")
+            queries.append(f"{query} 해결 방법")
+        
+        return queries[:3]  # 최대 3개로 제한
+    
+    def _advanced_categorize_document(self, text: str) -> str:
+        """고도화된 문서 분류"""
+        category_keywords = {
+            '기본이론': ['옴의법칙', '키르히호프', '전자기', '맥스웰', '쿨롱의법칙', '렉스의법칙'],
+            '전기기기': ['변압기', '모터', '발전기', '전동기', '동기기', '유도전동기', '동기모터'],
+            '전력공학': ['송전', '배전', '전력계통', '안정도', '보호계전', '전력품질'],
+            '자격증': ['시험', '자격증', '기사', '산업기사', '기능사', '전기기사']
+        }
+        
+        text_lower = text.lower()
+        scores = {}
+        
+        for category, keywords in category_keywords.items():
+            score = sum(1 for keyword in keywords if keyword.lower() in text_lower)
+            if score > 0:
+                scores[category] = score
+        
+        return max(scores.items(), key=lambda x: x[1])[0] if scores else '일반'
+    
+    def _get_document_info(self, doc_id: str) -> Optional[Dict]:
+        """문서 정보 고속 검색"""
+        for doc in self.documents:
+            if doc["id"] == doc_id:
+                return doc
+        return None
+    
+    def _calculate_multi_score(self, original_query: str, enhanced_query: str, doc: str, doc_info: Dict, distance: float, query_category: str) -> Dict:
+        """다중 지표 기반 점수 계산"""
+        cosine_similarity = 1 - distance
+        
+        # 1. 의미적 유사도
+        semantic_score = cosine_similarity
+        
+        # 2. 카테고리 일치도
+        category_score = 0.15 if doc_info["category"] == query_category else 0
+        
+        # 3. 키워드 매칭 (정밀 검색)
+        original_words = set(original_query.split())
+        doc_words = set(doc.lower().split())
+        keyword_overlap = len(original_words.intersection(doc_words)) / max(len(original_words), 1)
+        keyword_score = keyword_overlap * 0.2
+        
+        # 4. 문서 품질 점수
+        quality_score = 0.1 if len(doc_info.get("answer", "")) > 50 else 0
+        
+        # 5. 길이 기반 정규화
+        length_penalty = 0.05 if len(doc) > 1000 else 0  # 너무 긴 문서 페널티
+        
+        final_score = semantic_score + category_score + keyword_score + quality_score - length_penalty
+        
+        return {
+            'cosine_similarity': cosine_similarity,
+            'semantic_score': semantic_score,
+            'category_score': category_score,
+            'keyword_score': keyword_score,
+            'quality_score': quality_score,
+            'final_score': min(final_score, 1.0)  # 1.0 최대값 제한
+        }
+    
+    def _deduplicate_results(self, results: List[Dict]) -> List[Dict]:
+        """중복 결과 제거"""
+        seen_ids = set()
+        unique_results = []
+        
+        for result in results:
+            doc_id = result["doc_info"]["id"]
+            if doc_id not in seen_ids:
+                seen_ids.add(doc_id)
+                unique_results.append(result)
+        
+        return unique_results
+    
     def search_web(self, query: str, max_results: int = 3) -> List[Dict]:
-        """웹 검색 보조"""
+        """지능형 웹 검색 시스템"""
         try:
             with DDGS() as ddgs:
-                enhanced_query = f"다산에듀 {query}"
-                web_results = list(ddgs.text(enhanced_query, region="ko-kr", max_results=max_results))
+                # 다양한 검색 전략
+                search_queries = [
+                    f"전기공학 {query}",
+                    f"{query} 해설",
+                    f"{query} 기초 이론",
+                    query  # 원본 쿼리
+                ]
                 
+                all_results = []
+                
+                for search_query in search_queries[:2]:  # 상위 2개 전략만 사용
+                    try:
+                        web_results = list(ddgs.text(search_query, region="ko-kr", max_results=max_results))
+                
+                        for result in web_results:
+                            all_results.append(result)
+                    except:
+                        continue
+                
+                # 결과 처리 및 필터링
                 processed_results = []
                 for result in web_results:
                     trust_score = 1.5 if any(domain in result.get("href", "") for domain in [".edu", ".ac.kr", ".go.kr", "kea.kr"]) else 1.0
