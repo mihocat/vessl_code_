@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Main Application for Korean Electrical Engineering RAG System
-한국어 전기공학 RAG 시스템 메인 애플리케이션
+Main Application for RAG System
+RAG 시스템 메인 애플리케이션
 """
 
 import os
@@ -143,9 +143,7 @@ class RAGService:
     
     def _get_welcome_message(self) -> str:
         """환영 메시지"""
-        return """
-저는 AI 상담사입니다.
-무엇을 도와드릴까요?"""
+        return """저는 AI 상담사입니다. 무엇을 도와드릴까요?"""
     
     def _handle_non_electrical_query(self, query: str) -> str:
         """비질문 처리"""
@@ -162,52 +160,23 @@ def create_gradio_interface(service: RAGService):
         elif message.startswith("/도움"):
             return service._get_welcome_message()
         else:
-            # 간단한 사용자 ID 생성
             user_id = f"user_{len(history) % 100}"
             return service.process_query(message, user_id)
     
-    with gr.Blocks(theme=gr.themes.Soft()) as demo:
-        gr.Markdown("# 통합 서비스")
-        
-        with gr.Row():
-            with gr.Column(scale=3):
-                chatbot = gr.Chatbot(
-                    height=500,
-                    show_label=False,
-                    elem_id="chatbot",
-                    type="messages"
-                )
-                msg = gr.Textbox(
-                    label="질문 입력",
-                    placeholder="질문을 입력하세요...",
-                    lines=2
-                )
-                with gr.Row():
-                    submit = gr.Button("전송", variant="primary")
-                    clear = gr.Button("대화 초기화")
-            
-            with gr.Column(scale=1):                
-                gr.Markdown("### 예시")
-                examples = gr.Examples(
-                    examples=[
-                        "옴의 법칙을 쉽게 설명해주세요",
-                        "/통계",
-                        "/도움"
-                    ],
-                    inputs=msg
-                )
-        
-        def user_submit(message, history):
-            history = history or []
-            response = handle_query(message, history)
-            history.append({"role": "user", "content": message})
-            history.append({"role": "assistant", "content": response})
-            return "", history
-        
-        msg.submit(user_submit, [msg, chatbot], [msg, chatbot])
-        submit.click(user_submit, [msg, chatbot], [msg, chatbot])
-        clear.click(lambda: [], None, chatbot, queue=False)
-        gr.Markdown("---")    
+    demo = gr.ChatInterface(
+        fn=handle_query,
+        title="TEST_SERVICE",
+        description="테스트입니다",
+        examples=[
+            "/통계",
+            "/도움"
+        ],
+        theme=gr.themes.Default(),
+        chatbot=gr.Chatbot(height=500, show_copy_button=True, type="messages"),
+        textbox=gr.Textbox(placeholder="질문을 입력하세요...", container=False, scale=7),
+        type="messages"
+    )
+    
     return demo
 
 
@@ -218,8 +187,8 @@ def main():
     # 서비스 초기화
     service = RAGService()
     
-    # vLLM 서버 대기
-    service.llm_client.wait_for_server()
+    # vLLM 서버 상태체크
+    # service.llm_client.wait_for_server()
     
     # Gradio 인터페이스 실행
     app = create_gradio_interface(service)
@@ -233,7 +202,11 @@ def main():
         show_error=True,
         quiet=False,
         inbrowser=False,
-        prevent_thread_lock=False
+        prevent_thread_lock=False,
+        favicon_path=None,
+        ssl_verify=False,
+        allowed_paths=[],
+        app_kwargs={"docs_url": None, "redoc_url": None}
     )
 
 

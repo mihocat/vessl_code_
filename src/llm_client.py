@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-LLM Client Module for Korean Electrical Engineering RAG System
+LLM Client Module for RAG System
 LLM 클라이언트 모듈
 """
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class LLMClient:
     """LLM 서버 클라이언트"""
     
-    def __init__(self, base_url: str = "http://localhost:8000", model_name: str = "kollama-electrical"):
+    def __init__(self, base_url: str = "http://localhost:8000", model_name: str = "kollama"):
         """
         Args:
             base_url: vLLM 서버 주소
@@ -72,7 +72,7 @@ class LLMClient:
             logger.error(f"LLM 질의 실패: {str(e)}")
             return "연결에 문제가 발생했습니다."
     
-    def wait_for_server(self, max_attempts: int = 30, delay: int = 3) -> bool:
+    def wait_for_server(self, max_attempts: int = 60, delay: int = 3) -> bool:
         """서버 준비 대기"""
         import time
         

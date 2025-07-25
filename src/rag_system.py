@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Korean Electrical Engineering RAG System Core Module
-한국어 전기공학 RAG 시스템 핵심 모듈
+RAG System Core Module
+RAG 시스템 핵심 모듈
 """
 
 import os
