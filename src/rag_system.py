@@ -372,23 +372,83 @@ class ConcreteKoreanElectricalRAG:
                 
                 # 결과 처리 및 필터링
                 processed_results = []
-                for result in web_results:
-                    trust_score = 1.5 if any(domain in result.get("href", "") for domain in [".edu", ".ac.kr", ".go.kr", "kea.kr"]) else 1.0
+                seen_urls = set()
+                
+                for result in all_results:
+                    url = result.get("href", "")
+                    if url in seen_urls:  # 중복 URL 제거
+                        continue
+                    seen_urls.add(url)
+                    
+                    title = result.get("title", "")
+                    body = result.get("body", "")
+                    
+                    # 전기공학 관련성 검증
+                    relevance_score = self._calculate_web_relevance(query, title, body)
+                    if relevance_score < 0.3:  # 관련성 낮은 결과 제외
+                        continue
+                    
+                    # 신뢰도 점수 계산
+                    trust_domains = [".edu", ".ac.kr", ".go.kr", "kea.kr", "kstec.or.kr", "keit.re.kr"]
+                    trust_score = 2.0 if any(domain in url for domain in trust_domains) else 1.0
+                    
+                    # 최종 점수
+                    final_score = relevance_score * trust_score
                     
                     processed_results.append({
-                        "title": result.get("title", ""),
-                        "snippet": result.get("body", "")[:200],
-                        "url": result.get("href", ""),
-                        "trust_score": trust_score
+                        "title": title[:100],  # 제목 길이 제한
+                        "snippet": body[:300],  # 내용 길이 증가
+                        "url": url,
+                        "trust_score": trust_score,
+                        "relevance_score": relevance_score,
+                        "final_score": final_score
                     })
                 
-                # 신뢰도순 정렬
-                processed_results.sort(key=lambda x: x["trust_score"], reverse=True)
-                self.service_stats["web_searches"] += 1
-                return processed_results
+                # 최종 점수순 정렬
+                processed_results.sort(key=lambda x: x["final_score"], reverse=True)
+                
+                # 상위 결과만 반환
+                top_results = processed_results[:max_results]
+                if top_results:
+                    self.service_stats["web_searches"] += 1
+                
+                return top_results
         except Exception as e:
             logger.error(f"웹 검색 실패: {str(e)}")
             return []
+    
+    def _calculate_web_relevance(self, query: str, title: str, body: str) -> float:
+        """웹 검색 결과 관련성 계산"""
+        try:
+            # 전기공학 핵심 키워드
+            electrical_keywords = [
+                '전기', '전력', '전압', '전류', '저항', '회로', 
+                '변압기', '모터', '발전', '배전', '송전', '전자',
+                '에너지', '와트', '암페어', '볼트', '옴',
+                '기사', '자격증', '시험'
+            ]
+            
+            combined_text = f"{title} {body}".lower()
+            query_lower = query.lower()
+            
+            # 1. 직접 쿼리 매칭
+            query_match = 0.5 if query_lower in combined_text else 0
+            
+            # 2. 전기공학 키워드 매칭
+            keyword_matches = sum(1 for keyword in electrical_keywords if keyword in combined_text)
+            keyword_score = min(keyword_matches * 0.1, 0.4)
+            
+            # 3. 제목 중요도 가중치
+            title_bonus = 0.2 if any(keyword in title.lower() for keyword in electrical_keywords) else 0
+            
+            # 4. 문서 품질 평가
+            quality_score = 0.1 if len(body) > 100 else 0  # 충분한 내용이 있음
+            
+            total_score = query_match + keyword_score + title_bonus + quality_score
+            return min(total_score, 1.0)
+            
+        except:
+            return 0.3  # 기본값
     
     def check_electrical_relevance(self, query: str) -> bool:
         """전기공학 관련성 확인"""
