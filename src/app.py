@@ -180,30 +180,45 @@ def main():
     """메인 함수"""
     logger.info("=== RAG Service 시작 ===")
     
-    # 서비스 초기화
-    service = RAGService()
-    
-    # vLLM 서버 상태체크
-    # service.llm_client.wait_for_server()
-    
-    # Gradio 인터페이스 실행
-    app = create_gradio_interface(service)
-    logger.info("Gradio 인터페이스 시작...")
-    import os
-    port = int(os.environ.get("GRADIO_SERVER_PORT", "7860"))
-    app.launch(
-        server_name="0.0.0.0", 
-        server_port=port, 
-        share=False,
-        show_error=True,
-        quiet=False,
-        inbrowser=False,
-        prevent_thread_lock=False,
-        favicon_path=None,
-        ssl_verify=False,
-        allowed_paths=[],
-        app_kwargs={"docs_url": None, "redoc_url": None}
-    )
+    try:
+        # 서비스 초기화
+        service = RAGService()
+        logger.info("RAG 서비스 초기화 완료")
+        
+        # vLLM 서버 상태체크 (선택적)
+        try:
+            service.llm_client.wait_for_server(max_attempts=10, delay=2)
+            logger.info("vLLM 서버 연결 확인 완료")
+        except Exception as e:
+            logger.warning(f"vLLM 서버 연결 확인 실패: {e}")
+            logger.info("vLLM 서버 없이 계속 진행...")
+        
+        # Gradio 인터페이스 실행
+        app = create_gradio_interface(service)
+        logger.info("Gradio 인터페이스 시작...")
+        
+        port = int(os.environ.get("GRADIO_SERVER_PORT", "7860"))
+        logger.info(f"서버 포트: {port}")
+        
+        app.launch(
+            server_name="0.0.0.0", 
+            server_port=port, 
+            share=False,
+            show_error=True,
+            quiet=False,
+            inbrowser=False,
+            prevent_thread_lock=False,
+            favicon_path=None,
+            ssl_verify=False,
+            allowed_paths=[],
+            app_kwargs={"docs_url": None, "redoc_url": None}
+        )
+        
+    except Exception as e:
+        logger.error(f"서비스 시작 실패: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise
 
 
 if __name__ == "__main__":
