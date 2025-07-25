@@ -232,8 +232,8 @@ class ConcreteKoreanElectricalRAG:
                     # 최종 점수
                     final_score = similarity + category_bonus + keyword_bonus
                     
-                    # 임계값 이상만 추가
-                    if similarity > 0.5 or final_score > 0.6:
+                    # 임계값 이상만 추가 (더 관대한 설정으로 조정)
+                    if similarity > 0.4 or final_score > 0.5:
                         relevant_docs.append({
                             "content": doc,
                             "similarity": similarity,

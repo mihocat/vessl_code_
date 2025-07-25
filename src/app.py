@@ -185,13 +185,12 @@ def main():
         service = RAGService()
         logger.info("RAG 서비스 초기화 완료")
         
-        # vLLM 서버 상태체크 (선택적)
-        try:
-            service.llm_client.wait_for_server(max_attempts=10, delay=2)
-            logger.info("vLLM 서버 연결 확인 완료")
-        except Exception as e:
-            logger.warning(f"vLLM 서버 연결 확인 실패: {e}")
-            logger.info("vLLM 서버 없이 계속 진행...")
+        # vLLM 서버 연결 필수 확인
+        logger.info("vLLM 서버 연결 대기 중...")
+        if not service.llm_client.wait_for_server(max_attempts=30, delay=3):
+            logger.error("vLLM 서버 연결 실패 - 서비스를 시작할 수 없습니다")
+            raise RuntimeError("vLLM 서버에 연결할 수 없습니다")
+        logger.info("vLLM 서버 연결 성공")
         
         # Gradio 인터페이스 실행
         app = create_gradio_interface(service)

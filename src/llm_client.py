@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class LLMClient:
     """LLM 서버 클라이언트"""
     
-    def __init__(self, base_url: str = "http://localhost:8000", model_name: str = "kollama"):
+    def __init__(self, base_url: str = "http://localhost:8000", model_name: str = "test_model"):
         """
         Args:
             base_url: vLLM 서버 주소
