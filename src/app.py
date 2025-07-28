@@ -7,7 +7,7 @@
 import gradio as gr
 import time
 import logging
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 from llm_client import LLMClient
 from rag_system import ImprovedRAGSystem
 from ddgs import DDGS
