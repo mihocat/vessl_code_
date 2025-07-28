@@ -20,7 +20,7 @@ import chromadb
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
 from ddgs import DDGS
-from .llm_client import LLMClient
+from llm_client import LLMClient
 
 import logging
 logging.basicConfig(level=logging.INFO)

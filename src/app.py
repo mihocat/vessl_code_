@@ -8,8 +8,8 @@ import gradio as gr
 import time
 import logging
 from typing import List, Tuple, Optional
-from .llm_client import LLMClient
-from .rag_system import ImprovedRAGSystem
+from llm_client import LLMClient
+from rag_system import ImprovedRAGSystem
 from ddgs import DDGS
 
 logging.basicConfig(level=logging.INFO)
