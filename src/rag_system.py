@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class ImprovedRAGSystem:
     def __init__(
         self,
-        embedding_model_name: str = "BAAI/bge-m3",
+        embedding_model_name: str = "jinaai/jina-embeddings-v3",
         collection_name: str = "electrical_qa_v3",
         llm_client: Optional[LLMClient] = None
     ):

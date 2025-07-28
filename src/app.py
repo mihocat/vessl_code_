@@ -21,7 +21,7 @@ class ImprovedRAGService:
         """개선된 RAG 서비스 초기화"""
         self.llm_client = llm_client
         self.rag_system = ImprovedRAGSystem(
-            embedding_model_name="BAAI/bge-m3",
+            embedding_model_name="jinaai/jina-embeddings-v3",
             llm_client=llm_client
         )
         self.conversation_history = []
@@ -34,14 +34,7 @@ class ImprovedRAGService:
         if not question or not question.strip():
             return "질문을 입력해주세요."
         
-        # 전기공학 관련성 확인
-        is_electrical = self._is_electrical_query(question)
-        
-        if not is_electrical:
-            # 전기공학 외 질문 처리
-            return self._handle_non_electrical_query(question)
-        
-        # RAG 검색
+        # 모든 질문에 대해 RAG 검색 수행
         results, max_score = self.rag_system.search(question, k=5)
         
         # 응답 생성
@@ -203,18 +196,13 @@ def create_gradio_app(llm_url: str = "http://localhost:8000") -> gr.Blocks:
     rag_service = ImprovedRAGService(llm_client)
     
     # Gradio 인터페이스
-    with gr.Blocks(title="전기공학 AI 챗봇 (개선판)") as app:
+    with gr.Blocks(title="AI 챗봇") as app:
         gr.Markdown(
             """
-            # 🔌 전기공학 AI 챗봇 (개선판)
-            
-            전기공학 관련 질문에 답변해드립니다.
-            - 전기기사/산업기사/기능사 시험 문제
-            - 전기 이론 및 실무
-            - 전기 설비 및 안전
+            # AI 챗봇
             
             **개선사항:**
-            - BAAI/bge-m3 임베딩 모델
+            - jinaai/jina-embeddings-v3 임베딩 모델 (한국어 처리 최적화)
             - 향상된 검색 정확도
             - 특수 키워드 처리
             """
