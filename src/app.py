@@ -6,10 +6,6 @@
 
 import sys
 import os
-# custom_st 모듈 경로 추가
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-# trust_remote_code 환경 변수 설정
-os.environ["SENTENCE_TRANSFORMERS_TRUST_REMOTE_CODE"] = "true"
 
 import gradio as gr
 import time
@@ -28,7 +24,7 @@ class ImprovedRAGService:
         """개선된 RAG 서비스 초기화"""
         self.llm_client = llm_client
         self.rag_system = ImprovedRAGSystem(
-            embedding_model_name="jinaai/jina-embeddings-v3",
+            embedding_model_name="nlpai-lab/KoE5",
             llm_client=llm_client
         )
         self.conversation_history = []
@@ -209,7 +205,7 @@ def create_gradio_app(llm_url: str = "http://localhost:8000") -> gr.Blocks:
             # AI 챗봇
             
             **개선사항:**
-            - jinaai/jina-embeddings-v3 임베딩 모델 (한국어 처리 최적화)
+            - nlpai-lab/KoE5 임베딩 모델 (한국어 RAG 최적화)
             - 향상된 검색 정확도
             - 특수 키워드 처리
             """

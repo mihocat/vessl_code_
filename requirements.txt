@@ -1,11 +1,8 @@
 # Core ML/AI
 torch>=2.3.0
 transformers>=4.36.0
-sentence-transformers>=2.2.2,<3.0.0
+sentence-transformers>=2.2.2
 einops>=0.6.0
-# Jina embeddings dependencies
-protobuf>=3.20.0
-sentencepiece>=0.1.96
 
 # Vector Database
 chromadb>=0.4.0
