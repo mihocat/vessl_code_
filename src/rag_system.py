@@ -76,9 +76,20 @@ class ConcreteKoreanElectricalRAG:
                 logger.error(f"폴백 모델 로드도 실패: {fallback_e}")
                 raise RuntimeError(f"모든 임베딩 모델 로드 실패. 원본 에러: {e}, 폴백 에러: {fallback_e}")
         
-        # ChromaDB 초기화
+        # ChromaDB 초기화 - 기존 컬렉션 삭제 후 재생성
         self.chroma_client = chromadb.PersistentClient(path="/tmp/chroma_db_korean_electrical")
-        self.collection = self.chroma_client.get_or_create_collection(name="electrical_engineering_docs")
+        try:
+            # 기존 컬렉션 삭제 (차원 불일치 해결)
+            self.chroma_client.delete_collection(name="electrical_engineering_docs")
+            logger.info("기존 컬렉션 삭제 완료")
+        except Exception as e:
+            logger.info(f"컬렉션 삭제 시도: {e}")
+        
+        # 새 컬렉션 생성
+        self.collection = self.chroma_client.create_collection(
+            name="electrical_engineering_docs",
+            metadata={"embedding_dimension": self.embedding_model.get_sentence_embedding_dimension()}
+        )
         
         # 문서 및 통계
         self.documents = []
@@ -140,11 +151,18 @@ class ConcreteKoreanElectricalRAG:
             self._load_sample_data()
             return
         
-        # JSONL 파일에서 문서 로드
+        # JSONL 및 다양한 형식의 파일에서 문서 로드
+        import re
+        
         for root, dirs, files in os.walk(dataset_path):
             for file in files:
-                if file.endswith(".jsonl") and docs_count < max_docs:
-                    file_path = os.path.join(root, file)
+                if docs_count >= max_docs:
+                    break
+                    
+                file_path = os.path.join(root, file)
+                
+                # JSONL 파일 처리
+                if file.endswith(".jsonl"):
                     try:
                         with open(file_path, "r", encoding="utf-8") as f:
                             for line in f:
@@ -170,18 +188,64 @@ class ConcreteKoreanElectricalRAG:
                                         }
                                         self.documents.append(doc_item)
                                         docs_count += 1
-                                except:
+                                except Exception as e:
+                                    logger.debug(f"JSONL 파싱 오류: {e}")
                                     continue
-                    except:
+                    except Exception as e:
+                        logger.warning(f"JSONL 파일 읽기 오류 {file}: {e}")
+                        continue
+                
+                # 텍스트 파일 처리 (Q&A 형식)
+                elif file.endswith((".txt", ".md")):
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                            
+                        # Q&A 패턴 매칭: [숫자.Q] 질문 [숫자.A] 답변
+                        qa_pattern = r'\[(\d+)\.Q\]\s*([\s\S]*?)\n\s*\[(\d+)\.A\]\s*([\s\S]*?)(?=\n\s*\[\d+\.Q\]|$)'
+                        matches = re.findall(qa_pattern, content, re.MULTILINE)
+                        
+                        for match in matches:
+                            if docs_count >= max_docs:
+                                break
+                                
+                            q_num, question, a_num, answer = match
+                            if q_num == a_num:  # Q와 A 번호가 일치하는 경우만
+                                question = question.strip()
+                                answer = answer.strip()
+                                
+                                # 카테고리 자동 분류
+                                category = self._categorize_document(question)
+                                categories[category] += 1
+                                
+                                content = f"질문: {question} 답변: {answer} 분류: {category}"
+                                doc_item = {
+                                    "id": str(docs_count),
+                                    "text": content,
+                                    "question": question,
+                                    "answer": answer,
+                                    "category": category
+                                }
+                                self.documents.append(doc_item)
+                                docs_count += 1
+                                
+                    except Exception as e:
+                        logger.warning(f"텍스트 파일 읽기 오류 {file}: {e}")
                         continue
         
         # 카테고리별 통계 로그
+        logger.info(f"총 로드된 문서 수: {docs_count}개")
         logger.info("문서 카테고리 분포:")
         for cat, count in categories.items():
             logger.info(f"- {cat}: {count}개")
         
-        # 벡터화 및 저장
-        self._vectorize_documents()
+        # 문서가 로드되지 않았다면 샘플 데이터 사용
+        if docs_count == 0:
+            logger.warning("데이터셋에서 문서를 찾을 수 없음. 샘플 데이터 로드.")
+            self._load_sample_data()
+        else:
+            # 벡터화 및 저장
+            self._vectorize_documents()
     
     def _categorize_document(self, text: str) -> str:
         """문서 카테고리 자동 분류 - 전기 자격증 종목별 세분화"""
@@ -309,7 +373,13 @@ class ConcreteKoreanElectricalRAG:
             batch_texts = texts[i:i+batch_size]
             batch_ids = [self.documents[i+j]["id"] for j in range(len(batch_texts))]
             
-            embeddings = self.embedding_model.encode(batch_texts, convert_to_tensor=True)
+            # retrieval.passage 프롬프트 사용하여 문서 임베딩
+            embeddings = self.embedding_model.encode(
+                batch_texts, 
+                convert_to_tensor=True,
+                prompt_name="retrieval.passage",
+                prompt="Represent this document for retrieval: "
+            )
             # BFloat16 형식을 Float32로 변환
             if embeddings.dtype == torch.bfloat16:
                 embeddings = embeddings.float()
@@ -336,7 +406,13 @@ class ConcreteKoreanElectricalRAG:
             
             # 다중 쿼리 전략
             for enhanced_query in enhanced_queries:
-                query_embedding = self.embedding_model.encode([enhanced_query], convert_to_tensor=True)
+                # retrieval.query 프롬프트 사용
+                query_with_prompt = f"Represent this query for searching relevant documents: {enhanced_query}"
+                query_embedding = self.embedding_model.encode([query_with_prompt], convert_to_tensor=True, prompt_name="retrieval.query")
+                
+                # BFloat16 처리
+                if query_embedding.dtype == torch.bfloat16:
+                    query_embedding = query_embedding.float()
                 query_embedding_np = query_embedding.cpu().numpy()
                 
                 results = self.collection.query(
@@ -359,8 +435,9 @@ class ConcreteKoreanElectricalRAG:
                         # 다중 지표 기반 점수
                         scores = self._calculate_multi_score(query, enhanced_query, doc, doc_info, distance, query_category)
                         
-                        # 고품질 결과만 선별
-                        if scores['final_score'] > 0.65:  # 더 엄격한 임계값
+                        # 점진적 임계값 적용
+                        threshold = 0.3 if len(best_results) < 3 else 0.5
+                        if scores['final_score'] > threshold:
                             best_results.append({
                                 "content": doc,
                                 "doc_info": doc_info,
