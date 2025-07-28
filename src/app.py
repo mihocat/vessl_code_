@@ -28,7 +28,7 @@ class RAGService:
     
     def __init__(self):
         # RAG 시스템 초기화
-        self.rag_system = ConcreteKoreanElectricalRAG()
+        self.rag_system = ConcreteKoreanElectricalRAG(embedding_model_name="jinaai/jina-embeddings-v3")
         self.llm_client = LLMClient()
         
         # 데이터 로드
