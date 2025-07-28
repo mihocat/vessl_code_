@@ -49,8 +49,17 @@ class ImprovedRAGSystem:
             "total_queries": 0
         }
         
-        # 특수 키워드 사전 (비활성화 - 데이터셋에 의존)
-        self.special_keywords = {}
+        # 특수 키워드 사전
+        self.special_keywords = {
+            "다산에듀": {
+                "answer": "다산에듀는 전기 분야 자격증 교육 전문 기관입니다. 전기기사, 전기산업기사, 전기기능사 등 다양한 전기 자격증 과정을 제공하고 있습니다.",
+                "confidence": 1.0
+            },
+            "다산패스": {
+                "answer": "다산패스는 다산에듀에서 제공하는 온라인 학습 플랫폼입니다. 필기와 실기 과정을 모바일 앱으로 학습할 수 있으며, 구독 방식으로 운영됩니다.",
+                "confidence": 1.0
+            }
+        }
         
         # ChromaDB 초기화
         self._init_chromadb()

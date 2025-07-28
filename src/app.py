@@ -85,31 +85,36 @@ class ImprovedRAGService:
         """검색 결과를 기반으로 응답 생성"""
         
         # 점수 기반 응답 전략
-        if max_score >= 0.7:  # 임계값 낮춤
+        if max_score >= 0.85:  # 매우 높은 신뢰도만 직접 답변
             # 높은 신뢰도 - 직접 답변
             best_result = results[0]
             response = f"[질문] {question}\n\n"
             response += f"{best_result['answer']}\n"
             
             if best_result.get('category'):
-                response += f"\n*[분류: {best_result['category']}]*"
+                response += f"\n[분류: {best_result['category']}]"
             
-        elif max_score >= 0.4:  # 임계값 낮춤
-            # 중간 신뢰도 - 상위 결과들을 종합
+        elif max_score >= 0.5:  # 중간 신뢰도
+            # 중간 신뢰도 - LLM이 RAG 결과를 재구성
             context_parts = []
             for i, result in enumerate(results[:3]):
-                if result['score'] >= 0.3:
-                    context_parts.append(f"[관련답변{i+1}] {result['answer']}")
+                if result['score'] >= 0.4:
+                    context_parts.append(f"참고 {i+1}: {result['answer'][:300]}...")
             
             if context_parts:
                 context = "\n\n".join(context_parts)
-                prompt = f"""다음은 전기공학 질문과 관련 답변들입니다.
+                prompt = f"""사용자의 질문에 대해 자연스러운 답변을 생성해주세요. 참고자료가 있다면 활용하되, 직접 인용하지 말고 재구성하여 답변하세요.
 
-질문: {question}
+사용자 질문: {question}
 
+참고자료:
 {context}
 
-위 정보를 바탕으로 정확하고 전문적인 답변을 제공하세요. 전기공학 전문용어를 정확히 사용하고, 한국어로 답변하세요."""
+답변 시 주의사항:
+1. 참고자료가 질문과 관련이 적다면 일반적인 지식으로 답변
+2. 전문용어는 정확히 사용
+3. 자연스럽고 이해하기 쉽게 설명
+4. 한국어로 답변"""
                 
                 llm_response = self.llm_client.query(question, prompt)
                 response = f"[질문] {question}\n\n{llm_response}"
@@ -147,22 +152,16 @@ class ImprovedRAGService:
             else:
                 response = self._handle_low_confidence_query(question)
         
-        # 관련 질문 추천 (중간 신뢰도 이상)
-        if max_score >= 0.4 and len(results) > 1:
+        # 관련 질문 추천 (높은 신뢰도일 때만)
+        if max_score >= 0.7 and len(results) > 1:
             response += "\n\n**관련 질문들:**"
             seen_questions = {question.lower()}
             count = 0
             for result in results[1:]:
-                if result['question'].lower() not in seen_questions and count < 3:
+                if result['score'] >= 0.6 and result['question'].lower() not in seen_questions and count < 3:
                     response += f"\n- {result['question']}"
                     seen_questions.add(result['question'].lower())
                     count += 1
-        
-        # 신뢰도가 낮을 때 경고
-        if max_score < 0.5:
-            response += "\n\n*정확도 향상을 위해 추가 검증이 필요할 수 있습니다.*"
-        
-        response += "\n\n언제든지 질문해주세요."
         
         return response
     
@@ -199,15 +198,19 @@ class ImprovedRAGService:
     
     def _handle_low_confidence_query(self, question: str) -> str:
         """낮은 신뢰도 질문 처리"""
-        # LLM 직접 응답
-        response = self.llm_client.query(
-            question,
-            "전기공학 관련 질문에 대해 일반적인 지식으로 답변하세요."
-        )
+        prompt = f"""사용자의 질문에 대해 답변해주세요.
+
+질문: {question}
+
+답변 시 주의사항:
+1. 전기공학 관련 질문이라면 전문 지식을 활용하여 답변
+2. 일반적인 질문이라면 적절히 답변
+3. 한국어로 자연스럽게 답변
+4. 확실하지 않은 내용은 추정임을 명시"""
         
-        response += "\n\n*정확하지 않을 수 있습니다.*"
+        response = self.llm_client.query(question, prompt)
         
-        return response
+        return f"[질문] {question}\n\n{response}"
 
 
 def create_gradio_app(llm_url: str = "http://localhost:8000") -> gr.Blocks:
