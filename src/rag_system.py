@@ -240,7 +240,8 @@ class ImprovedRAGSystem:
         
         logger.info(f"처리된 파일 수: {processed_files}")
         
-        logger.info(f"총 {docs_count}개 문서 로드 완료")
+        actual_loaded = len(self.documents)
+        logger.info(f"총 {actual_loaded}개 문서 로드 완료 (시작: {len(self.documents) - actual_loaded}, 추가: {actual_loaded})")
     
     def _process_qa_file(self, file_path: Path, start_count: int) -> int:
         """Q&A 형식 파일 처리"""
@@ -326,6 +327,8 @@ class ImprovedRAGSystem:
                             logger.debug(f"문제 라인: {line[:100]}...")
                     
                     logger.info(f"JSONL 파일 처리 완료: 총 {line_count}줄, 성공 {success_count}개")
+                    if success_count == 0 and line_count > 0:
+                        logger.error(f"경고: {line_count}개 라인 중 하나도 처리되지 않음!")
                 else:
                     # JSON 파일 처리
                     data = json.load(f)
@@ -348,8 +351,8 @@ class ImprovedRAGSystem:
     def _process_json_record(self, record: dict, doc_id: int) -> bool:
         """JSON 레코드 처리"""
         # 다양한 필드명 지원
-        question_fields = ['question', 'q', 'query', '질문', 'input', 'instruction']
-        answer_fields = ['answer', 'a', 'response', '답변', 'output', 'completion']
+        question_fields = ['question', 'q', 'query', '질문', 'input', 'instruction', 'Context', 'context']
+        answer_fields = ['answer', 'a', 'response', '답변', 'output', 'completion', 'Response']
         
         # 첫 번째 레코드의 필드 확인
         if doc_id == 0 or doc_id == len(self.documents):
@@ -477,6 +480,10 @@ class ImprovedRAGSystem:
                 logger.info(f"벡터화 진행: {current_batch}/{total_batches} 배치 완료 ({len(batch)}개 문서)")
             
             logger.info(f"벡터화 완료: {len(self.documents)}개 문서")
+            
+            # 실제 저장된 문서 수 확인
+            saved_count = self.collection.count()
+            logger.info(f"ChromaDB에 실제 저장된 문서 수: {saved_count}")
             
         except Exception as e:
             logger.error(f"벡터화 실패: {e}")
