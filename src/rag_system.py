@@ -16,7 +16,7 @@ import numpy as np
 import torch
 import chromadb
 from sentence_transformers import SentenceTransformer
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -435,8 +435,8 @@ class ConcreteKoreanElectricalRAG:
                         # 다중 지표 기반 점수
                         scores = self._calculate_multi_score(query, enhanced_query, doc, doc_info, distance, query_category)
                         
-                        # 점진적 임계값 적용
-                        threshold = 0.3 if len(best_results) < 3 else 0.5
+                        # 점진적 임계값 적용 (더 낮은 값)
+                        threshold = 0.25 if len(best_results) < 3 else 0.4
                         if scores['final_score'] > threshold:
                             best_results.append({
                                 "content": doc,
@@ -787,16 +787,16 @@ class ConcreteKoreanElectricalRAG:
         if db_found and len(db_results) > 0:
             highest_score = db_results[0]["final_score"]
             
-            if highest_score > 0.80:
+            if highest_score > 0.70:
                 # 매우 고신뢰도 - 직접 DB 답변
                 return db_results, "very_high_confidence_db"
-            elif highest_score > 0.70:
+            elif highest_score > 0.55:
                 # 고신뢰도 - DB 답변 + 보강
                 return db_results, "high_confidence_db"
-            elif highest_score > 0.60:
+            elif highest_score > 0.40:
                 # 중간신뢰도 - LLM 재구성
                 return db_results, "medium_confidence_db"
-            elif highest_score > 0.45:
+            elif highest_score > 0.25:
                 # 저신뢰도 - 하이브리드 시도
                 web_results = self.search_web(query)
                 if web_results:

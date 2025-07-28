@@ -34,7 +34,7 @@ class LLMClient:
         except:
             return False
     
-    def query(self, prompt: str, context: str = "", max_tokens: int = 1200, temperature: float = 0.1) -> str:
+    def query(self, prompt: str, context: str = "", max_tokens: int = 800, temperature: float = 0.1) -> str:
         """LLM 질의 - 전기공학 전문 최적화"""
         try:
             # 전문 시스템 역할 정의

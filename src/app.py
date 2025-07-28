@@ -193,7 +193,13 @@ class RAGService:
 
 **/통계** 명령으로 서비스 현황을 확인할 수 있습니다."""
         
-        return "죄송합니다. 전기공학 관련 질문에만 답변드릴 수 있습니다. 전기, 전력, 회로, 자격증 등에 대해 질문해 주세요."
+        # LLM으로 일반적인 답변 생성
+        try:
+            context = "전기공학 분야 외의 질문입니다. 일반적인 도움을 제공합니다."
+            answer = self.llm_client.query(query, context)
+            return f"{answer}\n\n*정확하지 않을 수 있습니다.*"
+        except:
+            return "질문을 처리하는 중 오류가 발생했습니다. 전기공학 관련 질문을 해주시면 더 정확한 답변을 드릴 수 있습니다."
 
 
 def create_gradio_interface(service: RAGService):
