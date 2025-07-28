@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class ConcreteKoreanElectricalRAG:
     """통합 RAG 시스템"""
     
-    def __init__(self, embedding_model_name: str = "jinaai/jina-embeddings-v3"):
+    def __init__(self, embedding_model_name: str = "sentence-transformers/distiluse-base-multilingual-cased"):
         """
         Args:
             embedding_model_name: 한국어 임베딩 모델 이름
@@ -35,13 +35,45 @@ class ConcreteKoreanElectricalRAG:
             os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
             
             # 한국어 임베딩 모델 로드
-            self.embedding_model = SentenceTransformer(embedding_model_name)
+            logger.info(f"임베딩 모델 로드 시도: {embedding_model_name}")
+            self.embedding_model = SentenceTransformer(embedding_model_name, trust_remote_code=True)
             logger.info(f"한국어 임베딩 모델 로드 완료: {embedding_model_name}")
+            
+            # 모델 정보 로깅
+            try:
+                model_info = {
+                    "model_name": embedding_model_name,
+                    "embedding_dimension": self.embedding_model.get_sentence_embedding_dimension(),
+                    "max_seq_length": getattr(self.embedding_model, 'max_seq_length', 'Unknown'),
+                    "device": getattr(self.embedding_model, 'device', 'Unknown')
+                }
+                logger.info(f"로드된 임베딩 모델 정보: {model_info}")
+            except Exception as info_e:
+                logger.warning(f"모델 정보 수집 실패: {info_e}")
+                
         except Exception as e:
-            logger.error(f"임베딩 모델 로드 실패: {str(e)}")
+            logger.error(f"임베딩 모델 로드 실패 - {embedding_model_name}: {str(e)}")
+            logger.error(f"에러 타입: {type(e).__name__}")
+            logger.info("폴백 모델로 전환 중...")
+            
             # 폴백 모델
-            self.embedding_model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-            logger.info("폴백 임베딩 모델 로드: paraphrase-multilingual-MiniLM")
+            fallback_model = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+            try:
+                self.embedding_model = SentenceTransformer(fallback_model)
+                logger.info(f"폴백 임베딩 모델 로드 성공: {fallback_model}")
+                
+                # 폴백 모델 정보 로깅
+                fallback_info = {
+                    "model_name": fallback_model,
+                    "embedding_dimension": self.embedding_model.get_sentence_embedding_dimension(),
+                    "max_seq_length": getattr(self.embedding_model, 'max_seq_length', 'Unknown'),
+                    "device": getattr(self.embedding_model, 'device', 'Unknown')
+                }
+                logger.info(f"폴백 모델 정보: {fallback_info}")
+                
+            except Exception as fallback_e:
+                logger.error(f"폴백 모델 로드도 실패: {fallback_e}")
+                raise RuntimeError(f"모든 임베딩 모델 로드 실패. 원본 에러: {e}, 폴백 에러: {fallback_e}")
         
         # ChromaDB 초기화
         self.chroma_client = chromadb.PersistentClient(path="/tmp/chroma_db_korean_electrical")
@@ -59,6 +91,43 @@ class ConcreteKoreanElectricalRAG:
         }
         
         logger.info("ConcreteKoreanElectricalRAG 초기화 완료")
+        
+        # 임베딩 모델 테스트
+        self._test_embedding_model()
+    
+    def _test_embedding_model(self):
+        """임베딩 모델 기능 테스트"""
+        try:
+            test_texts = ["안녕하세요", "전기공학 테스트"]
+            logger.info("임베딩 모델 기능 테스트 시작...")
+            
+            embeddings = self.embedding_model.encode(test_texts)
+            
+            test_info = {
+                "test_texts": test_texts,
+                "embedding_shape": embeddings.shape,
+                "embedding_type": type(embeddings).__name__,
+                "sample_values": embeddings[0][:5].tolist() if len(embeddings[0]) >= 5 else embeddings[0].tolist()
+            }
+            logger.info(f"임베딩 모델 테스트 성공: {test_info}")
+            
+        except Exception as e:
+            logger.error(f"임베딩 모델 테스트 실패: {e}")
+            raise RuntimeError(f"임베딩 모델이 제대로 작동하지 않습니다: {e}")
+    
+    def get_current_embedding_model_info(self) -> dict:
+        """현재 사용 중인 임베딩 모델 정보 반환"""
+        try:
+            return {
+                "model_class": self.embedding_model.__class__.__name__,
+                "embedding_dimension": self.embedding_model.get_sentence_embedding_dimension(),
+                "max_seq_length": getattr(self.embedding_model, 'max_seq_length', 'Unknown'),
+                "device": str(getattr(self.embedding_model, 'device', 'Unknown')),
+                "modules": [str(module) for module in getattr(self.embedding_model, '_modules', {}).keys()],
+                "tokenizer_type": type(getattr(self.embedding_model, 'tokenizer', None)).__name__ if hasattr(self.embedding_model, 'tokenizer') else 'Unknown'
+            }
+        except Exception as e:
+            return {"error": str(e)}
     
     def load_documents_from_dataset(self, dataset_path: str = "/dataset", max_docs: int = 6000):
         """데이터셋에서 문서 로드 및 벡터화"""
@@ -608,6 +677,19 @@ class ConcreteKoreanElectricalRAG:
         
         stats.append(f"\n• 지식베이스: {len(self.documents)}개 문서")
         stats.append(f"• 활성 사용자: {len(self.user_history)}명")
+        
+        # 임베딩 모델 정보 추가
+        stats.append("\n**🔧 시스템 정보:**")
+        model_info = self.get_current_embedding_model_info()
+        if "error" not in model_info:
+            stats.append(f"• 임베딩 모델: {model_info.get('model_class', 'Unknown')}")
+            stats.append(f"• 임베딩 차원: {model_info.get('embedding_dimension', 'Unknown')}")
+            stats.append(f"• 최대 시퀀스: {model_info.get('max_seq_length', 'Unknown')}")
+            stats.append(f"• 디바이스: {model_info.get('device', 'Unknown')}")
+            if model_info.get('tokenizer_type') != 'Unknown':
+                stats.append(f"• 토크나이저: {model_info.get('tokenizer_type', 'Unknown')}")
+        else:
+            stats.append(f"• 모델 정보 오류: {model_info['error']}")
         
         return "\n".join(stats)
     
