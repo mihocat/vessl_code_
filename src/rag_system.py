@@ -66,34 +66,15 @@ class ImprovedRAGSystem:
     def _init_chromadb(self):
         """ChromaDB 초기화 및 컬렉션 생성"""
         try:
-            # 임베딩 함수 설정 - jinaai/jina-embeddings-v3 호환성 처리
-            try:
-                # 먼저 표준 방법으로 시도
-                self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-                    model_name=self.embedding_model_name,
-                    device="cuda" if torch.cuda.is_available() else "cpu"
-                )
-            except Exception as e:
-                logger.warning(f"표준 임베딩 로드 실패: {e}")
-                # Fallback: 직접 SentenceTransformer 사용
-                from sentence_transformers import SentenceTransformer
-                
-                # trust_remote_code 옵션 추가
-                self.sentence_transformer = SentenceTransformer(
-                    self.embedding_model_name,
-                    device="cuda" if torch.cuda.is_available() else "cpu",
-                    trust_remote_code=True
-                )
-                
-                # 커스텀 임베딩 함수 생성
-                class CustomEmbeddingFunction:
-                    def __init__(self, model):
-                        self.model = model
-                    
-                    def __call__(self, texts):
-                        return self.model.encode(texts, convert_to_numpy=True).tolist()
-                
-                self.embedding_function = CustomEmbeddingFunction(self.sentence_transformer)
+            # 환경 변수로 trust_remote_code 설정
+            import os
+            os.environ["SENTENCE_TRANSFORMERS_TRUST_REMOTE_CODE"] = "true"
+            
+            # 임베딩 함수 설정 - ChromaDB의 표준 인터페이스 사용
+            self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name=self.embedding_model_name,
+                device="cuda" if torch.cuda.is_available() else "cpu"
+            )
             
             # ChromaDB 클라이언트 초기화
             self.chroma_client = chromadb.PersistentClient(

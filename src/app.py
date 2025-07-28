@@ -8,6 +8,8 @@ import sys
 import os
 # custom_st 모듈 경로 추가
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# trust_remote_code 환경 변수 설정
+os.environ["SENTENCE_TRANSFORMERS_TRUST_REMOTE_CODE"] = "true"
 
 import gradio as gr
 import time
