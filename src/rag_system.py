@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 from collections import defaultdict
 
 import numpy as np
+import torch
 import chromadb
 from sentence_transformers import SentenceTransformer
 from duckduckgo_search import DDGS
@@ -309,6 +310,9 @@ class ConcreteKoreanElectricalRAG:
             batch_ids = [self.documents[i+j]["id"] for j in range(len(batch_texts))]
             
             embeddings = self.embedding_model.encode(batch_texts, convert_to_tensor=True)
+            # BFloat16 형식을 Float32로 변환
+            if embeddings.dtype == torch.bfloat16:
+                embeddings = embeddings.float()
             embeddings_np = embeddings.cpu().numpy()
             
             self.collection.add(
