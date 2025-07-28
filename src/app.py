@@ -85,62 +85,82 @@ class ImprovedRAGService:
         """검색 결과를 기반으로 응답 생성"""
         
         # 점수 기반 응답 전략
-        if max_score >= 0.8:
-            # 매우 높은 신뢰도 - 직접 답변
+        if max_score >= 0.7:  # 임계값 낮춤
+            # 높은 신뢰도 - 직접 답변
             best_result = results[0]
-            response = f"안녕하세요! 질문에 대한 답변입니다.\n\n"
-            response += f"**질문**: {question}\n\n"
-            response += f"**답변**:\n{best_result['answer']}\n"
+            response = f"[질문] {question}\n\n"
+            response += f"{best_result['answer']}\n"
             
             if best_result.get('category'):
                 response += f"\n*[분류: {best_result['category']}]*"
             
-        elif max_score >= 0.5:
-            # 중간 신뢰도 - DB 답변 + LLM 보강
+        elif max_score >= 0.4:  # 임계값 낮춤
+            # 중간 신뢰도 - 상위 결과들을 종합
             context_parts = []
             for i, result in enumerate(results[:3]):
-                if result['score'] >= 0.4:
-                    context_parts.append(f"참고자료 {i+1}: {result['answer']}")
+                if result['score'] >= 0.3:
+                    context_parts.append(f"[관련답변{i+1}] {result['answer']}")
             
-            context = "\n\n".join(context_parts)
+            if context_parts:
+                context = "\n\n".join(context_parts)
+                prompt = f"""다음은 전기공학 질문과 관련 답변들입니다.
+
+질문: {question}
+
+{context}
+
+위 정보를 바탕으로 정확하고 전문적인 답변을 제공하세요. 전기공학 전문용어를 정확히 사용하고, 한국어로 답변하세요."""
+                
+                llm_response = self.llm_client.query(question, prompt)
+                response = f"[질문] {question}\n\n{llm_response}"
+            else:
+                response = self._handle_low_confidence_query(question)
             
-            # LLM으로 재구성
-            llm_response = self.llm_client.query(question, context)
-            response = llm_response
-            
-        elif max_score >= 0.3:
-            # 낮은 신뢰도 - 웹 검색 추가
-            # DB 결과
+        else:
+            # 낮은 신뢰도 - 웹 검색 + LLM
+            # DB에서 찾은 내용
             db_context = []
             for result in results[:2]:
-                if result['score'] >= 0.3:
+                if result['score'] >= 0.2:
                     db_context.append(result['answer'])
             
             # 웹 검색
             web_results = self._search_web(question)
             web_context = []
-            for web in web_results[:2]:
+            for web in web_results[:3]:
                 web_context.append(f"{web['title']}: {web['snippet']}")
             
-            # 통합 컨텍스트
-            all_context = "\n".join(db_context + web_context)
+            # 통합 프롬프트
+            all_context = "\n".join(db_context + web_context) if (db_context or web_context) else ""
             
-            # LLM 응답
-            llm_response = self.llm_client.query(question, all_context)
-            response = llm_response
-            
-        else:
-            # 매우 낮은 신뢰도 - LLM 직접 응답
-            response = self._handle_low_confidence_query(question)
+            if all_context:
+                prompt = f"""전기공학 질문에 대해 다음 참고자료를 바탕으로 정확한 답변을 제공하세요.
+
+질문: {question}
+
+참고자료:
+{all_context}
+
+전문용어를 정확히 사용하여 한국어로 답변하세요."""
+                llm_response = self.llm_client.query(question, prompt)
+                response = f"[질문] {question}\n\n{llm_response}"
+            else:
+                response = self._handle_low_confidence_query(question)
         
-        # 관련 질문 추천 (높은 신뢰도일 때만)
-        if max_score >= 0.5 and len(results) > 1:
+        # 관련 질문 추천 (중간 신뢰도 이상)
+        if max_score >= 0.4 and len(results) > 1:
             response += "\n\n**관련 질문들:**"
             seen_questions = {question.lower()}
-            for result in results[1:4]:
-                if result['question'].lower() not in seen_questions:
+            count = 0
+            for result in results[1:]:
+                if result['question'].lower() not in seen_questions and count < 3:
                     response += f"\n- {result['question']}"
                     seen_questions.add(result['question'].lower())
+                    count += 1
+        
+        # 신뢰도가 낮을 때 경고
+        if max_score < 0.5:
+            response += "\n\n*정확도 향상을 위해 추가 검증이 필요할 수 있습니다.*"
         
         response += "\n\n언제든지 질문해주세요."
         

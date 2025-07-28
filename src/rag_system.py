@@ -54,6 +54,10 @@ class ImprovedRAGSystem:
             "다산에듀": {
                 "answer": "미호가 다니는 회사입니다!",
                 "confidence": 1.0
+            },
+            "다산패스": {
+                "answer": "미호가 다니는 회사인 다산에듀의 교육 프로그램입니다!",
+                "confidence": 1.0
             }
         }
         
@@ -174,17 +178,20 @@ class ImprovedRAGSystem:
             self._load_sample_data()
             return
         
-        # 파일 처리
-        for file_path in docs_path.rglob("*.txt"):
+        # 파일 처리 - 모든 txt 파일 확인
+        txt_files = list(docs_path.rglob("*.txt"))
+        logger.info(f"발견된 txt 파일 수: {len(txt_files)}")
+        
+        for file_path in txt_files:
             if docs_count >= 10000:  # 최대 문서 수
                 break
             
             if file_path.name.startswith("."):
                 continue
             
-            # Q&A 형식 파일 처리
-            if any(pattern in file_path.name for pattern in ["_parsed", "_qa", "qa_"]):
-                docs_count = self._process_qa_file(file_path, docs_count)
+            # 모든 텍스트 파일 처리 시도
+            logger.debug(f"파일 처리 시도: {file_path.name}")
+            docs_count = self._process_qa_file(file_path, docs_count)
         
         logger.info(f"총 {docs_count}개 문서 로드 완료")
     
@@ -196,9 +203,12 @@ class ImprovedRAGSystem:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
             
-            # Q&A 패턴 매칭
+            # Q&A 패턴 매칭 - 더 유연한 패턴
             qa_pattern = r'\[(\d+)\.Q\]\s*([\s\S]*?)\n\s*\[(\d+)\.A\]\s*([\s\S]*?)(?=\n\s*\[\d+\.Q\]|$)'
             matches = re.findall(qa_pattern, content, re.MULTILINE)
+            
+            if matches:
+                logger.info(f"파일 {file_path.name}에서 {len(matches)}개 Q&A 쌍 발견")
             
             for match in matches:
                 q_num, question, a_num, answer = match
