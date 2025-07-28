@@ -308,13 +308,24 @@ class ImprovedRAGSystem:
             with open(file_path, "r", encoding="utf-8") as f:
                 if file_path.suffix == '.jsonl':
                     # JSONL 파일 처리
-                    for line in f:
+                    line_count = 0
+                    success_count = 0
+                    for line_num, line in enumerate(f, 1):
+                        line_count += 1
                         try:
+                            if not line.strip():
+                                continue
                             data = json.loads(line.strip())
                             if self._process_json_record(data, docs_count):
                                 docs_count += 1
-                        except json.JSONDecodeError:
-                            continue
+                                success_count += 1
+                            else:
+                                logger.info(f"라인 {line_num}: 유효한 Q&A 필드 없음 - 레코드 키: {list(data.keys())}")
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"라인 {line_num} JSON 파싱 오류: {e}")
+                            logger.debug(f"문제 라인: {line[:100]}...")
+                    
+                    logger.info(f"JSONL 파일 처리 완료: 총 {line_count}줄, 성공 {success_count}개")
                 else:
                     # JSON 파일 처리
                     data = json.load(f)
@@ -327,15 +338,24 @@ class ImprovedRAGSystem:
                             docs_count += 1
                             
         except Exception as e:
-            logger.warning(f"JSON 파일 처리 오류 {file_path}: {e}")
+            logger.error(f"JSON 파일 처리 오류 {file_path}: {e}")
+            logger.error(f"오류 타입: {type(e).__name__}")
+            import traceback
+            logger.error(f"상세 오류:\n{traceback.format_exc()}")
         
         return docs_count
     
     def _process_json_record(self, record: dict, doc_id: int) -> bool:
         """JSON 레코드 처리"""
         # 다양한 필드명 지원
-        question_fields = ['question', 'q', 'query', '질문']
-        answer_fields = ['answer', 'a', 'response', '답변', 'output']
+        question_fields = ['question', 'q', 'query', '질문', 'input', 'instruction']
+        answer_fields = ['answer', 'a', 'response', '답변', 'output', 'completion']
+        
+        # 첫 번째 레코드의 필드 확인
+        if doc_id == 0 or doc_id == len(self.documents):
+            logger.info(f"첫 번째 레코드 필드: {list(record.keys())[:10]}")
+            if len(list(record.keys())) > 10:
+                logger.info(f"... 총 {len(record.keys())}개 필드")
         
         question = None
         answer = None
@@ -343,12 +363,18 @@ class ImprovedRAGSystem:
         for field in question_fields:
             if field in record:
                 question = str(record[field]).strip()
-                break
+                if question:  # 빈 문자열이 아닌 경우만
+                    break
                 
         for field in answer_fields:
             if field in record:
                 answer = str(record[field]).strip()
-                break
+                if answer:  # 빈 문자열이 아닌 경우만
+                    break
+        
+        # 디버깅: 첫 몇 개 레코드 내용 확인
+        if doc_id < 3:
+            logger.info(f"레코드 {doc_id}: question='{question[:50] if question else None}...', answer='{answer[:50] if answer else None}...'")
         
         if question and answer:
             category = self._categorize_simple(question)
