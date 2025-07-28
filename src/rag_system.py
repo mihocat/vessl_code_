@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class ConcreteKoreanElectricalRAG:
     """통합 RAG 시스템"""
     
-    def __init__(self, embedding_model_name: str = "jhgan/ko-sroberta-multitask"):
+    def __init__(self, embedding_model_name: str = "jinaai/jina-embeddings-v3"):
         """
         Args:
             embedding_model_name: 한국어 임베딩 모델 이름
@@ -114,17 +114,68 @@ class ConcreteKoreanElectricalRAG:
         self._vectorize_documents()
     
     def _categorize_document(self, text: str) -> str:
-        """문서 카테고리 자동 분류"""
-        if any(word in text for word in ["옴의", "키르히호프", "전자기", "맥스웰"]):
-            return "기본이론"
-        elif any(word in text for word in ["변압기", "모터", "발전기", "전동기"]):
-            return "전기기기"
-        elif any(word in text for word in ["송전", "배전", "전력계통", "안정도"]):
-            return "전력공학"
-        elif any(word in text for word in ["시험", "자격증", "기사", "산업기사"]):
-            return "자격증"
+        """문서 카테고리 자동 분류 - 전기 자격증 종목별 세분화"""
+        text_lower = text.lower()
+        
+        # 1. 전기 자격증 종목별 분류 (우선순위)
+        if any(word in text_lower for word in ["전기기사", "기사시험", "기사 시험", "기사필기", "기사실기"]):
+            return "전기기사"
+        elif any(word in text_lower for word in ["전기산업기사", "산업기사시험", "산업기사 시험", "산업기사필기", "산업기사실기"]):
+            return "전기산업기사"
+        elif any(word in text_lower for word in ["전기기능사", "기능사시험", "기능사 시험", "기능사필기", "기능사실기"]):
+            return "전기기능사"
+        elif any(word in text_lower for word in ["전기공사기사", "공사기사"]):
+            return "전기공사기사"
+        elif any(word in text_lower for word in ["전기공사산업기사", "공사산업기사"]):
+            return "전기공사산업기사"
+        
+        # 2. 기본 전기공학 이론 분야
+        elif any(word in text_lower for word in ["옴의법칙", "키르히호프", "전자기학", "맥스웰", "쿨롱", "패러데이", "렌츠"]):
+            return "기초이론"
+        elif any(word in text_lower for word in ["회로이론", "회로해석", "교류회로", "직류회로", "rlc회로", "공진회로"]):
+            return "회로이론"
+        
+        # 3. 전기기기 분야  
+        elif any(word in text_lower for word in ["변압기", "트랜스포머", "전력변압기", "배전용변압기"]):
+            return "변압기"
+        elif any(word in text_lower for word in ["유도전동기", "동기전동기", "직류전동기", "모터", "전동기"]):
+            return "전동기"
+        elif any(word in text_lower for word in ["발전기", "동기발전기", "유도발전기", "직류발전기"]):
+            return "발전기"
+        
+        # 4. 전력공학 분야
+        elif any(word in text_lower for word in ["송전", "송전선로", "송전계통", "고압송전"]):
+            return "송전공학"
+        elif any(word in text_lower for word in ["배전", "배전선로", "배전계통", "배전용변압기"]):
+            return "배전공학"  
+        elif any(word in text_lower for word in ["전력계통", "계통운용", "전력품질", "안정도", "조상설비"]):
+            return "전력계통"
+        elif any(word in text_lower for word in ["보호계전", "계전기", "차단기", "개폐기", "피뢰기"]):
+            return "보호제어"
+        
+        # 5. 전기설비 및 시공 분야
+        elif any(word in text_lower for word in ["전기설비", "수변전설비", "배전반", "분전반"]):
+            return "전기설비"
+        elif any(word in text_lower for word in ["전기공사", "배선공사", "케이블", "전선", "도관"]):
+            return "전기공사"
+        elif any(word in text_lower for word in ["접지", "피뢰", "전기안전", "감전", "누전"]):
+            return "전기안전"
+        
+        # 6. 신재생에너지 및 최신기술
+        elif any(word in text_lower for word in ["태양광", "풍력", "연료전지", "태양전지", "신재생에너지"]):
+            return "신재생에너지"
+        elif any(word in text_lower for word in ["전기자동차", "ev충전", "배터리", "스마트그리드"]):
+            return "최신기술"
+        
+        # 7. 전자공학 관련
+        elif any(word in text_lower for word in ["반도체", "다이오드", "트랜지스터", "ic", "증폭기"]):
+            return "전자공학"
+        elif any(word in text_lower for word in ["제어공학", "자동제어", "pid제어", "모터제어"]):
+            return "제어공학"
+        
+        # 8. 기타 일반
         else:
-            return "일반"
+            return "기타"
     
     def _load_sample_data(self):
         """샘플 데이터 로드"""
@@ -132,22 +183,32 @@ class ConcreteKoreanElectricalRAG:
             {
                 "question": "옴의 법칙이 무엇인가요?",
                 "answer": "옴의 법칙은 전압(V) = 전류(I) × 저항(R)의 관계를 나타내는 전기공학의 기본 법칙입니다.",
-                "category": "기본이론"
+                "category": "기초이론"
             },
             {
                 "question": "교류와 직류의 차이점을 설명해주세요.",
                 "answer": "직류(DC)는 전류가 한 방향으로만 흐르며, 교류(AC)는 전류의 방향이 주기적으로 바뀝니다.",
-                "category": "기본이론"
+                "category": "회로이론"
             },
             {
                 "question": "변압기의 동작 원리를 알려주세요.",
                 "answer": "변압기는 패러데이의 전자기유도 법칙을 이용하여 권수비에 따라 전압을 변환합니다.",
-                "category": "전기기기"
+                "category": "변압기"
             },
             {
                 "question": "전기기사 시험은 어떻게 준비하나요?",
                 "answer": "전기기사 시험은 필기와 실기로 구성되며, 기본서 학습 후 기출문제를 반복 풀이하는 것이 효과적입니다.",
-                "category": "자격증"
+                "category": "전기기사"
+            },
+            {
+                "question": "유도전동기의 동작 원리는?",
+                "answer": "유도전동기는 회전자기장에 의해 회전자가 회전하는 원리로 동작하며, 슬립에 따라 토크가 결정됩니다.",
+                "category": "전동기"
+            },
+            {
+                "question": "송전선로의 특성 임피던스는?",
+                "answer": "송전선로의 특성 임피던스는 √(L/C)로 계산되며, 일반적으로 400-500Ω 범위입니다.",
+                "category": "송전공학"
             }
         ]
         
@@ -276,12 +337,39 @@ class ConcreteKoreanElectricalRAG:
         return queries[:3]  # 최대 3개로 제한
     
     def _advanced_categorize_document(self, text: str) -> str:
-        """고도화된 문서 분류"""
+        """고도화된 문서 분류 - 확장된 카테고리 지원"""
         category_keywords = {
-            '기본이론': ['옴의법칙', '키르히호프', '전자기', '맥스웰', '쿨롱의법칙', '렉스의법칙'],
-            '전기기기': ['변압기', '모터', '발전기', '전동기', '동기기', '유도전동기', '동기모터'],
-            '전력공학': ['송전', '배전', '전력계통', '안정도', '보호계전', '전력품질'],
-            '자격증': ['시험', '자격증', '기사', '산업기사', '기능사', '전기기사']
+            # 자격증 종목별
+            '전기기사': ['전기기사', '기사시험', '기사필기', '기사실기'],
+            '전기산업기사': ['전기산업기사', '산업기사시험', '산업기사필기', '산업기사실기'],
+            '전기기능사': ['전기기능사', '기능사시험', '기능사필기', '기능사실기'],
+            '전기공사기사': ['전기공사기사', '공사기사'],
+            
+            # 이론 분야별
+            '기초이론': ['옴의법칙', '키르히호프', '전자기학', '맥스웰', '쿨롱', '패러데이'],
+            '회로이론': ['회로이론', '회로해석', '교류회로', '직류회로', 'rlc회로'],
+            
+            # 기기별
+            '변압기': ['변압기', '트랜스포머', '전력변압기'],
+            '전동기': ['유도전동기', '동기전동기', '직류전동기', '모터'],
+            '발전기': ['발전기', '동기발전기', '유도발전기'],
+            
+            # 시스템별
+            '송전공학': ['송전', '송전선로', '송전계통'],
+            '배전공학': ['배전', '배전선로', '배전계통'],
+            '전력계통': ['전력계통', '계통운용', '전력품질', '안정도'],
+            '보호제어': ['보호계전', '계전기', '차단기'],
+            
+            # 설비/공사별  
+            '전기설비': ['전기설비', '수변전설비', '배전반'],
+            '전기공사': ['전기공사', '배선공사', '케이블'],
+            '전기안전': ['접지', '피뢰', '전기안전', '감전'],
+            
+            # 신기술별
+            '신재생에너지': ['태양광', '풍력', '연료전지', '신재생에너지'],
+            '최신기술': ['전기자동차', 'ev충전', '스마트그리드'],
+            '전자공학': ['반도체', '다이오드', '트랜지스터'],
+            '제어공학': ['제어공학', '자동제어', 'pid제어']
         }
         
         text_lower = text.lower()
@@ -292,7 +380,7 @@ class ConcreteKoreanElectricalRAG:
             if score > 0:
                 scores[category] = score
         
-        return max(scores.items(), key=lambda x: x[1])[0] if scores else '일반'
+        return max(scores.items(), key=lambda x: x[1])[0] if scores else '기타'
     
     def _get_document_info(self, doc_id: str) -> Optional[Dict]:
         """문서 정보 고속 검색"""
@@ -420,12 +508,24 @@ class ConcreteKoreanElectricalRAG:
     def _calculate_web_relevance(self, query: str, title: str, body: str) -> float:
         """웹 검색 결과 관련성 계산"""
         try:
-            # 전기공학 핵심 키워드
+            # 확장된 전기공학 핵심 키워드
             electrical_keywords = [
-                '전기', '전력', '전압', '전류', '저항', '회로', 
-                '변압기', '모터', '발전', '배전', '송전', '전자',
-                '에너지', '와트', '암페어', '볼트', '옴',
-                '기사', '자격증', '시험'
+                # 기본 전기 개념
+                '전기', '전력', '전압', '전류', '저항', '회로', '임피던스', '인덕턴스', '커패시턴스',
+                # 전기기기
+                '변압기', '모터', '발전기', '전동기', '동기기', '유도기', '직류기',
+                # 전력시스템
+                '송전', '배전', '전력계통', '수변전', '보호계전', '차단기', '개폐기',
+                # 전기설비/공사
+                '전기설비', '배선', '케이블', '전선', '접지', '피뢰', '분전반', '배전반',
+                # 제어/전자
+                '제어', '자동제어', 'pid', '반도체', '다이오드', '트랜지스터', 'ic',
+                # 신기술
+                '태양광', '풍력', '신재생', '스마트그리드', '전기자동차', 'ev충전',
+                # 단위/측정
+                '와트', '암페어', '볼트', '옴', '헤르츠', 'kw', 'kv', 'a', 'v', 'hz',
+                # 자격증/시험
+                '전기기사', '전기산업기사', '전기기능사', '전기공사기사', '기사', '산업기사', '기능사', '자격증', '시험', '필기', '실기'
             ]
             
             combined_text = f"{title} {body}".lower()
@@ -451,12 +551,41 @@ class ConcreteKoreanElectricalRAG:
             return 0.3  # 기본값
     
     def check_electrical_relevance(self, query: str) -> bool:
-        """전기공학 관련성 확인"""
+        """확장된 전기공학 관련성 확인"""
         electrical_keywords = [
-            "전기", "전력", "전압", "전류", "저항", "회로", "변압기", "모터", "발전",
-            "배전", "송전", "전자", "에너지", "와트", "암페어", "볼트", "옴",
-            "AC", "DC", "교류", "직류", "주파수", "임피던스", "인덕턴스",
-            "커패시턴스", "기사", "자격증", "시험", "공부"
+            # 기본 전기 개념
+            "전기", "전력", "전압", "전류", "저항", "회로", "임피던스", "인덕턴스", "커패시턴스",
+            "교류", "직류", "AC", "DC", "주파수", "위상", "역률", "전력인수",
+            
+            # 전기기기
+            "변압기", "트랜스포머", "모터", "전동기", "발전기", "동기기", "유도기", "직류기",
+            "단상", "삼상", "권선", "철심", "자속", "토크", "슬립", "회전수",
+            
+            # 전력시스템  
+            "송전", "배전", "전력계통", "수변전", "변전소", "보호계전", "차단기", "개폐기",
+            "안정도", "조상설비", "무효전력", "전력품질", "고조파", "플리커",
+            
+            # 전기설비/공사
+            "전기설비", "수변전설비", "배선", "케이블", "전선", "도관", "덕트",
+            "접지", "피뢰", "누전", "감전", "분전반", "배전반", "제어반",
+            
+            # 제어/전자
+            "제어", "자동제어", "pid제어", "시퀀스제어", "프로그래머블로직컨트롤러", "plc",
+            "반도체", "다이오드", "트랜지스터", "thyristor", "ic", "증폭기", "인버터",
+            
+            # 신기술/에너지
+            "태양광", "태양전지", "풍력", "연료전지", "신재생에너지", "esg",
+            "스마트그리드", "전기자동차", "ev충전", "배터리", "ess", "마이크로그리드",
+            
+            # 단위/측정
+            "와트", "암페어", "볼트", "옴", "헤르츠", "바", "var", "va",
+            "kw", "kv", "ka", "mw", "gw", "kva", "mva", "kwh", "mwh",
+            "a", "v", "w", "hz", "ω", "°", "φ", "cosφ",
+            
+            # 자격증/시험/교육
+            "전기기사", "전기산업기사", "전기기능사", "전기공사기사", "전기공사산업기사",
+            "기사", "산업기사", "기능사", "자격증", "시험", "필기", "실기", "기출문제",
+            "전기공학", "전력공학", "전기기기", "회로이론", "제어공학", "전자공학"
         ]
         
         query_lower = query.lower()
@@ -481,3 +610,49 @@ class ConcreteKoreanElectricalRAG:
         stats.append(f"• 활성 사용자: {len(self.user_history)}명")
         
         return "\n".join(stats)
+    
+    def enhanced_search_pipeline(self, query: str) -> tuple:
+        """향상된 통합 검색 파이프라인 - 확장된 범위 지원"""
+        # 1. 전기공학 관련성 확인 (확장된 키워드로)
+        if not self.check_electrical_relevance(query):
+            return [], "non_electrical"
+        
+        # 2. 벡터 검색 실행 (고도화된 다중 지표)
+        db_results, db_found = self.search_vector_database(query)
+        
+        # 3. 신뢰도 기반 검색 전략 결정
+        if db_found and len(db_results) > 0:
+            highest_score = db_results[0]["final_score"]
+            
+            if highest_score > 0.80:
+                # 매우 고신뢰도 - 직접 DB 답변
+                return db_results, "very_high_confidence_db"
+            elif highest_score > 0.70:
+                # 고신뢰도 - DB 답변 + 보강
+                return db_results, "high_confidence_db"
+            elif highest_score > 0.60:
+                # 중간신뢰도 - LLM 재구성
+                return db_results, "medium_confidence_db"
+            elif highest_score > 0.45:
+                # 저신뢰도 - 하이브리드 시도
+                web_results = self.search_web(query)
+                if web_results:
+                    return (db_results, web_results), "hybrid_search"
+                else:
+                    return db_results, "low_confidence_db"
+        
+        # 4. DB 결과가 부족한 경우 웹검색 시도
+        web_results = self.search_web(query)
+        if web_results:
+            if db_found and len(db_results) > 0:
+                # DB + 웹 하이브리드
+                return (db_results, web_results), "hybrid_search"
+            else:
+                # 웹검색 전용
+                return web_results, "web_only"
+        
+        # 5. 모든 검색이 실패한 경우
+        if db_found and len(db_results) > 0:
+            return db_results, "fallback_db"
+        else:
+            return [], "no_results"
