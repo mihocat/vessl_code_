@@ -49,17 +49,8 @@ class ImprovedRAGSystem:
             "total_queries": 0
         }
         
-        # 특수 키워드 사전
-        self.special_keywords = {
-            "다산에듀": {
-                "answer": "미호가 다니는 회사입니다!",
-                "confidence": 1.0
-            },
-            "다산패스": {
-                "answer": "미호가 다니는 회사인 다산에듀의 교육 프로그램입니다!",
-                "confidence": 1.0
-            }
-        }
+        # 특수 키워드 사전 (비활성화 - 데이터셋에 의존)
+        self.special_keywords = {}
         
         # ChromaDB 초기화
         self._init_chromadb()
@@ -139,21 +130,23 @@ class ImprovedRAGSystem:
     
     def _load_special_keywords(self):
         """특수 키워드를 우선 문서로 추가"""
-        doc_id = 0
-        for keyword, info in self.special_keywords.items():
-            doc_item = {
-                "id": f"special_{doc_id}",
-                "text": keyword,  # 키워드만 벡터화
-                "question": keyword,
-                "answer": info["answer"],
-                "category": "특수키워드",
-                "is_special": True,
-                "confidence": info["confidence"]
-            }
-            self.documents.append(doc_item)
-            doc_id += 1
-        
-        logger.info(f"특수 키워드 {len(self.special_keywords)}개 로드 완료")
+        # 특수 키워드 비활성화 - 데이터셋에서 로드
+        if self.special_keywords:
+            doc_id = 0
+            for keyword, info in self.special_keywords.items():
+                doc_item = {
+                    "id": f"special_{doc_id}",
+                    "text": keyword,  # 키워드만 벡터화
+                    "question": keyword,
+                    "answer": info["answer"],
+                    "category": "특수키워드",
+                    "is_special": True,
+                    "confidence": info["confidence"]
+                }
+                self.documents.append(doc_item)
+                doc_id += 1
+            
+            logger.info(f"특수 키워드 {len(self.special_keywords)}개 로드 완료")
     
     def _load_dataset_documents(self):
         """데이터셋에서 문서 로드"""
@@ -182,6 +175,11 @@ class ImprovedRAGSystem:
         txt_files = list(docs_path.rglob("*.txt"))
         logger.info(f"발견된 txt 파일 수: {len(txt_files)}")
         
+        # 파일 이름 샘플 출력
+        if txt_files:
+            logger.info(f"첫 5개 파일: {[f.name for f in txt_files[:5]]}")
+        
+        processed_files = 0
         for file_path in txt_files:
             if docs_count >= 10000:  # 최대 문서 수
                 break
@@ -190,8 +188,15 @@ class ImprovedRAGSystem:
                 continue
             
             # 모든 텍스트 파일 처리 시도
-            logger.debug(f"파일 처리 시도: {file_path.name}")
+            logger.info(f"파일 처리 중: {file_path.name}")
+            prev_count = docs_count
             docs_count = self._process_qa_file(file_path, docs_count)
+            
+            if docs_count > prev_count:
+                processed_files += 1
+                logger.info(f"파일 {file_path.name}에서 {docs_count - prev_count}개 문서 추가")
+        
+        logger.info(f"처리된 파일 수: {processed_files}")
         
         logger.info(f"총 {docs_count}개 문서 로드 완료")
     
@@ -203,12 +208,25 @@ class ImprovedRAGSystem:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
             
-            # Q&A 패턴 매칭 - 더 유연한 패턴
-            qa_pattern = r'\[(\d+)\.Q\]\s*([\s\S]*?)\n\s*\[(\d+)\.A\]\s*([\s\S]*?)(?=\n\s*\[\d+\.Q\]|$)'
-            matches = re.findall(qa_pattern, content, re.MULTILINE)
+            # Q&A 패턴 매칭 - 더 유연한 패턴들
+            patterns = [
+                # 기본 패턴: [1.Q] ... [1.A] ...
+                r'\[(\d+)\.Q\]\s*([\s\S]*?)\n\s*\[(\d+)\.A\]\s*([\s\S]*?)(?=\n\s*\[\d+\.Q\]|$)',
+                # 변형 패턴: Q1: ... A1: ...
+                r'Q(\d+):\s*([\s\S]*?)\n\s*A(\d+):\s*([\s\S]*?)(?=\n\s*Q\d+:|$)',
+                # 질문/답변 패턴
+                r'질문(\d+):\s*([\s\S]*?)\n\s*답변(\d+):\s*([\s\S]*?)(?=\n\s*질문\d+:|$)'
+            ]
+            
+            matches = []
+            for pattern in patterns:
+                found = re.findall(pattern, content, re.MULTILINE | re.IGNORECASE)
+                if found:
+                    matches.extend(found)
+                    logger.info(f"패턴 '{pattern[:20]}...'에서 {len(found)}개 발견")
             
             if matches:
-                logger.info(f"파일 {file_path.name}에서 {len(matches)}개 Q&A 쌍 발견")
+                logger.info(f"파일 {file_path.name}에서 총 {len(matches)}개 Q&A 쌍 발견")
             
             for match in matches:
                 q_num, question, a_num, answer = match
@@ -274,7 +292,7 @@ class ImprovedRAGSystem:
         
         try:
             # 배치 처리
-            batch_size = 100
+            batch_size = 500  # 배치 크기 증가
             total_batches = (len(self.documents) + batch_size - 1) // batch_size
             
             logger.info(f"{len(self.documents)}개 문서 벡터화 시작...")
@@ -301,8 +319,7 @@ class ImprovedRAGSystem:
                 )
                 
                 current_batch = i // batch_size + 1
-                if current_batch % 10 == 0:
-                    logger.info(f"벡터화 진행: {current_batch}/{total_batches} 배치 완료")
+                logger.info(f"벡터화 진행: {current_batch}/{total_batches} 배치 완료 ({len(batch)}개 문서)")
             
             logger.info(f"벡터화 완료: {len(self.documents)}개 문서")
             
