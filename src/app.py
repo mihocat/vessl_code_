@@ -85,16 +85,17 @@ class ImprovedRAGService:
         """검색 결과를 기반으로 응답 생성"""
         
         # 점수 기반 응답 전략
-        if max_score >= 0.85:  # 매우 높은 신뢰도만 직접 답변
+        response = f"[질문] {question}\n\n"
+        
+        if max_score >= 0.9:  # 매우 높은 신뢰도만 직접 답변
             # 높은 신뢰도 - 직접 답변
             best_result = results[0]
-            response = f"[질문] {question}\n\n"
             response += f"{best_result['answer']}\n"
             
             if best_result.get('category'):
                 response += f"\n[분류: {best_result['category']}]"
             
-        elif max_score >= 0.5:  # 중간 신뢰도
+        elif max_score >= 0.6:  # 중간 신뢰도
             # 중간 신뢰도 - LLM이 RAG 결과를 재구성
             context_parts = []
             for i, result in enumerate(results[:3]):
@@ -112,12 +113,13 @@ class ImprovedRAGService:
 
 답변 시 주의사항:
 1. 참고자료가 질문과 관련이 적다면 일반적인 지식으로 답변
-2. 전문용어는 정확히 사용
-3. 자연스럽고 이해하기 쉽게 설명
-4. 한국어로 답변"""
+2. 전문용어는 정확히 사용하되 수식은 피하거나 텍스트로 설명
+3. 핵심만 간결하게 2-3문단으로 답변
+4. 불필요한 반복 피하기
+5. 한국어로 자연스럽게 답변"""
                 
                 llm_response = self.llm_client.query(question, prompt)
-                response = f"[질문] {question}\n\n{llm_response}"
+                response += llm_response
             else:
                 response = self._handle_low_confidence_query(question)
             
@@ -148,7 +150,7 @@ class ImprovedRAGService:
 
 전문용어를 정확히 사용하여 한국어로 답변하세요."""
                 llm_response = self.llm_client.query(question, prompt)
-                response = f"[질문] {question}\n\n{llm_response}"
+                response += llm_response
             else:
                 response = self._handle_low_confidence_query(question)
         
@@ -205,12 +207,13 @@ class ImprovedRAGService:
 답변 시 주의사항:
 1. 전기공학 관련 질문이라면 전문 지식을 활용하여 답변
 2. 일반적인 질문이라면 적절히 답변
-3. 한국어로 자연스럽게 답변
-4. 확실하지 않은 내용은 추정임을 명시"""
+3. 핵심만 간결하게 2-3문단으로 답변
+4. 수식은 텍스트로 설명
+5. 한국어로 자연스럽게 답변"""
         
-        response = self.llm_client.query(question, prompt)
+        llm_response = self.llm_client.query(question, prompt)
         
-        return f"[질문] {question}\n\n{response}"
+        return f"[질문] {question}\n\n{llm_response}"
 
 
 def create_gradio_app(llm_url: str = "http://localhost:8000") -> gr.Blocks:
