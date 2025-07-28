@@ -161,21 +161,43 @@ class ImprovedRAGSystem:
             Path("./data")
         ]
         
+        # 현재 작업 디렉토리 확인
+        logger.info(f"현재 작업 디렉토리: {os.getcwd()}")
+        logger.info(f"디렉토리 내용: {os.listdir('.')}")
+        
+        # 환경변수 확인
+        logger.info(f"DATASET_PATH 환경변수: {os.environ.get('DATASET_PATH', 'Not set')}")
+        
         docs_path = None
         for path in paths_to_check:
+            logger.info(f"경로 확인 중: {path.absolute()}")
             if path.exists():
                 docs_path = path
-                logger.info(f"문서 경로 발견: {docs_path}")
+                logger.info(f"문서 경로 발견: {docs_path.absolute()}")
                 # 디렉토리 내용 확인
                 if docs_path.is_dir():
                     items = list(docs_path.iterdir())
                     logger.info(f"디렉토리 내 항목 수: {len(items)}")
                     if items:
                         logger.info(f"처음 10개 항목: {[item.name for item in items[:10]]}")
+                        # 파일 타입 확인
+                        file_types = {}
+                        for item in items:
+                            if item.is_file():
+                                ext = item.suffix
+                                file_types[ext] = file_types.get(ext, 0) + 1
+                        logger.info(f"파일 타입별 개수: {file_types}")
                 break
+            else:
+                logger.info(f"경로 {path.absolute()} 존재하지 않음")
         
         if not docs_path:
             logger.warning("문서 경로를 찾을 수 없습니다.")
+            # 루트 디렉토리 탐색
+            logger.info("루트 디렉토리 탐색:")
+            for item in Path("/").iterdir():
+                if item.is_dir() and not item.name.startswith('.'):
+                    logger.info(f"  /{item.name}")
             self._load_sample_data()
             return
         
