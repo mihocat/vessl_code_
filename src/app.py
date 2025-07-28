@@ -4,6 +4,11 @@
 개선된 Gradio UI 애플리케이션
 """
 
+import sys
+import os
+# custom_st 모듈 경로 추가
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import gradio as gr
 import time
 import logging
