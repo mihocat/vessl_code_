@@ -154,9 +154,11 @@ class ImprovedRAGSystem:
         
         # 경로 설정
         paths_to_check = [
-            Path("./2_documents"),
             Path("/dataset"),
-            Path("./dataset")
+            Path("./dataset"),
+            Path("./2_documents"),
+            Path("/data"),
+            Path("./data")
         ]
         
         docs_path = None
@@ -164,6 +166,12 @@ class ImprovedRAGSystem:
             if path.exists():
                 docs_path = path
                 logger.info(f"문서 경로 발견: {docs_path}")
+                # 디렉토리 내용 확인
+                if docs_path.is_dir():
+                    items = list(docs_path.iterdir())
+                    logger.info(f"디렉토리 내 항목 수: {len(items)}")
+                    if items:
+                        logger.info(f"처음 10개 항목: {[item.name for item in items[:10]]}")
                 break
         
         if not docs_path:
@@ -171,26 +179,38 @@ class ImprovedRAGSystem:
             self._load_sample_data()
             return
         
-        # 파일 처리 - 모든 txt 파일 확인
-        txt_files = list(docs_path.rglob("*.txt"))
-        logger.info(f"발견된 txt 파일 수: {len(txt_files)}")
+        # 파일 처리 - 다양한 확장자 지원
+        all_files = []
+        for ext in ['*.txt', '*.json', '*.jsonl', '*.csv', '*.tsv']:
+            files = list(docs_path.rglob(ext))
+            if files:
+                all_files.extend(files)
+                logger.info(f"{ext} 파일 {len(files)}개 발견")
+        
+        logger.info(f"총 발견된 파일 수: {len(all_files)}")
         
         # 파일 이름 샘플 출력
-        if txt_files:
-            logger.info(f"첫 5개 파일: {[f.name for f in txt_files[:5]]}")
+        if all_files:
+            logger.info(f"첫 5개 파일: {[f.name for f in all_files[:5]]}")
         
         processed_files = 0
-        for file_path in txt_files:
+        for file_path in all_files:
             if docs_count >= 10000:  # 최대 문서 수
                 break
             
             if file_path.name.startswith("."):
                 continue
             
-            # 모든 텍스트 파일 처리 시도
+            # 파일 확장자에 따라 처리
             logger.info(f"파일 처리 중: {file_path.name}")
             prev_count = docs_count
-            docs_count = self._process_qa_file(file_path, docs_count)
+            
+            if file_path.suffix == '.txt':
+                docs_count = self._process_qa_file(file_path, docs_count)
+            elif file_path.suffix in ['.json', '.jsonl']:
+                docs_count = self._process_json_file(file_path, docs_count)
+            elif file_path.suffix in ['.csv', '.tsv']:
+                docs_count = self._process_csv_file(file_path, docs_count)
             
             if docs_count > prev_count:
                 processed_files += 1
@@ -255,6 +275,93 @@ class ImprovedRAGSystem:
                     
         except Exception as e:
             logger.warning(f"파일 처리 오류 {file_path}: {e}")
+        
+        return docs_count
+    
+    def _process_json_file(self, file_path: Path, start_count: int) -> int:
+        """JSON/JSONL 파일 처리"""
+        docs_count = start_count
+        
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                if file_path.suffix == '.jsonl':
+                    # JSONL 파일 처리
+                    for line in f:
+                        try:
+                            data = json.loads(line.strip())
+                            if self._process_json_record(data, docs_count):
+                                docs_count += 1
+                        except json.JSONDecodeError:
+                            continue
+                else:
+                    # JSON 파일 처리
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        for item in data:
+                            if self._process_json_record(item, docs_count):
+                                docs_count += 1
+                    elif isinstance(data, dict):
+                        if self._process_json_record(data, docs_count):
+                            docs_count += 1
+                            
+        except Exception as e:
+            logger.warning(f"JSON 파일 처리 오류 {file_path}: {e}")
+        
+        return docs_count
+    
+    def _process_json_record(self, record: dict, doc_id: int) -> bool:
+        """JSON 레코드 처리"""
+        # 다양한 필드명 지원
+        question_fields = ['question', 'q', 'query', '질문']
+        answer_fields = ['answer', 'a', 'response', '답변', 'output']
+        
+        question = None
+        answer = None
+        
+        for field in question_fields:
+            if field in record:
+                question = str(record[field]).strip()
+                break
+                
+        for field in answer_fields:
+            if field in record:
+                answer = str(record[field]).strip()
+                break
+        
+        if question and answer:
+            category = self._categorize_simple(question)
+            doc_item = {
+                "id": str(doc_id),
+                "text": question,
+                "question": question,
+                "answer": answer,
+                "category": category,
+                "is_special": False,
+                "confidence": 0.8
+            }
+            self.documents.append(doc_item)
+            return True
+        
+        return False
+    
+    def _process_csv_file(self, file_path: Path, start_count: int) -> int:
+        """CSV/TSV 파일 처리"""
+        docs_count = start_count
+        
+        try:
+            import pandas as pd
+            delimiter = '\t' if file_path.suffix == '.tsv' else ','
+            df = pd.read_csv(file_path, delimiter=delimiter)
+            
+            # 컬럼명 확인
+            logger.info(f"CSV 컬럼: {list(df.columns)}")
+            
+            for _, row in df.iterrows():
+                if self._process_json_record(row.to_dict(), docs_count):
+                    docs_count += 1
+                    
+        except Exception as e:
+            logger.warning(f"CSV 파일 처리 오류 {file_path}: {e}")
         
         return docs_count
     
@@ -368,14 +475,23 @@ class ImprovedRAGSystem:
     def _vector_search(self, query: str, k: int) -> List[Dict]:
         """벡터 검색 수행"""
         try:
+            # 컬렉션이 비어있는지 확인
+            count = self.collection.count()
+            logger.info(f"ChromaDB 문서 수: {count}")
+            
+            if count == 0:
+                logger.warning("ChromaDB에 문서가 없습니다.")
+                return []
+            
             # ChromaDB 검색
             results = self.collection.query(
                 query_texts=[query],
-                n_results=k,
+                n_results=min(k, count),  # 문서 수보다 많이 요청하지 않도록
                 include=["metadatas", "distances", "documents"]
             )
             
-            if not results["ids"][0]:
+            if not results["ids"] or not results["ids"][0]:
+                logger.warning("검색 결과가 없습니다.")
                 return []
             
             # 결과 변환
@@ -400,6 +516,7 @@ class ImprovedRAGSystem:
             
         except Exception as e:
             logger.error(f"벡터 검색 실패: {e}")
+            logger.error(f"오류 세부사항: {type(e).__name__}: {str(e)}")
             return []
     
     def _rerank_results(self, query: str, results: List[Dict], k: int) -> List[Dict]:
