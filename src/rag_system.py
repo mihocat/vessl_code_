@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class ImprovedRAGSystem:
     def __init__(
         self,
-        embedding_model_name: str = "nlpai-lab/KoE5",
+        embedding_model_name: str = "jinaai/jina-embeddings-v3",
         collection_name: str = "electrical_qa_v3",
         llm_client: Optional[LLMClient] = None
     ):
@@ -68,12 +68,29 @@ class ImprovedRAGSystem:
         try:
             import os
             os.environ["TOKENIZERS_PARALLELISM"] = "false"
+            os.environ["SENTENCE_TRANSFORMERS_TRUST_REMOTE_CODE"] = "true"
             
-            # 임베딩 함수 설정 - KoE5는 표준 인터페이스 사용 가능
-            self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name=self.embedding_model_name,
+            # jina-embeddings-v3를 위한 커스텀 임베딩 함수
+            from sentence_transformers import SentenceTransformer
+            
+            # trust_remote_code 파라미터로 모델 로드
+            self.model = SentenceTransformer(
+                self.embedding_model_name,
+                trust_remote_code=True,
                 device="cuda" if torch.cuda.is_available() else "cpu"
             )
+            
+            # ChromaDB용 커스텀 임베딩 함수 클래스
+            class JinaEmbeddingFunction:
+                def __init__(self, model):
+                    self.model = model
+                    
+                def __call__(self, input):
+                    # ChromaDB는 'input' 파라미터를 기대함
+                    embeddings = self.model.encode(input, normalize_embeddings=True)
+                    return embeddings.tolist()
+            
+            self.embedding_function = JinaEmbeddingFunction(self.model)
             
             # ChromaDB 클라이언트 초기화
             self.chroma_client = chromadb.PersistentClient(
