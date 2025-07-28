@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class ConcreteKoreanElectricalRAG:
     """통합 RAG 시스템"""
     
-    def __init__(self, embedding_model_name: str = "sentence-transformers/distiluse-base-multilingual-cased"):
+    def __init__(self, embedding_model_name: str = "jinaai/jina-embeddings-v3"):
         """
         Args:
             embedding_model_name: 한국어 임베딩 모델 이름
