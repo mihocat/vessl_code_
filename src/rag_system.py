@@ -1,363 +1,240 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RAG System Core Module
-RAG 시스템 핵심 모듈
+개선된 RAG 시스템 - 정확도 향상을 위한 전면 재설계
 """
 
-import os
 import json
+import os
+import re
 import time
-import logging
-from typing import Dict, List, Optional
+from pathlib import Path
+from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
-
-import numpy as np
+import asyncio
 import torch
-import chromadb
-from sentence_transformers import SentenceTransformer
-from ddgs import DDGS
+import numpy as np
+from datetime import datetime
 
-# 로깅 설정
+import chromadb
+from chromadb.config import Settings
+from chromadb.utils import embedding_functions
+from ddgs import DDGS
+from .llm_client import LLMClient
+
+import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class ConcreteKoreanElectricalRAG:
-    """통합 RAG 시스템"""
-    
-    def __init__(self, embedding_model_name: str = "jinaai/jina-embeddings-v3"):
-        """
-        Args:
-            embedding_model_name: 한국어 임베딩 모델 이름
-        """
-        try:
-            os.environ["SAFETENSORS_FAST_GPU"] = "1"
-            os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
-            
-            # 한국어 임베딩 모델 로드
-            logger.info(f"임베딩 모델 로드 시도: {embedding_model_name}")
-            self.embedding_model = SentenceTransformer(embedding_model_name, trust_remote_code=True)
-            logger.info(f"한국어 임베딩 모델 로드 완료: {embedding_model_name}")
-            
-            # 모델 정보 로깅
-            try:
-                model_info = {
-                    "model_name": embedding_model_name,
-                    "embedding_dimension": self.embedding_model.get_sentence_embedding_dimension(),
-                    "max_seq_length": getattr(self.embedding_model, 'max_seq_length', 'Unknown'),
-                    "device": getattr(self.embedding_model, 'device', 'Unknown')
-                }
-                logger.info(f"로드된 임베딩 모델 정보: {model_info}")
-            except Exception as info_e:
-                logger.warning(f"모델 정보 수집 실패: {info_e}")
-                
-        except Exception as e:
-            logger.error(f"임베딩 모델 로드 실패 - {embedding_model_name}: {str(e)}")
-            logger.error(f"에러 타입: {type(e).__name__}")
-            logger.info("폴백 모델로 전환 중...")
-            
-            # 폴백 모델
-            fallback_model = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-            try:
-                self.embedding_model = SentenceTransformer(fallback_model)
-                logger.info(f"폴백 임베딩 모델 로드 성공: {fallback_model}")
-                
-                # 폴백 모델 정보 로깅
-                fallback_info = {
-                    "model_name": fallback_model,
-                    "embedding_dimension": self.embedding_model.get_sentence_embedding_dimension(),
-                    "max_seq_length": getattr(self.embedding_model, 'max_seq_length', 'Unknown'),
-                    "device": getattr(self.embedding_model, 'device', 'Unknown')
-                }
-                logger.info(f"폴백 모델 정보: {fallback_info}")
-                
-            except Exception as fallback_e:
-                logger.error(f"폴백 모델 로드도 실패: {fallback_e}")
-                raise RuntimeError(f"모든 임베딩 모델 로드 실패. 원본 에러: {e}, 폴백 에러: {fallback_e}")
-        
-        # ChromaDB 초기화 - 기존 컬렉션 삭제 후 재생성
-        self.chroma_client = chromadb.PersistentClient(path="/tmp/chroma_db_korean_electrical")
-        try:
-            # 기존 컬렉션 삭제 (차원 불일치 해결)
-            self.chroma_client.delete_collection(name="electrical_engineering_docs")
-            logger.info("기존 컬렉션 삭제 완료")
-        except Exception as e:
-            logger.info(f"컬렉션 삭제 시도: {e}")
-        
-        # 새 컬렉션 생성
-        self.collection = self.chroma_client.create_collection(
-            name="electrical_engineering_docs",
-            metadata={"embedding_dimension": self.embedding_model.get_sentence_embedding_dimension()}
-        )
-        
-        # 문서 및 통계
+class ImprovedRAGSystem:
+    def __init__(
+        self,
+        embedding_model_name: str = "jinaai/jina-embeddings-v3",
+        collection_name: str = "electrical_qa_v3",
+        llm_client: Optional[LLMClient] = None
+    ):
+        """개선된 RAG 시스템 초기화"""
+        self.embedding_model_name = embedding_model_name
+        self.collection_name = collection_name
+        self.llm_client = llm_client
         self.documents = []
-        self.user_history = defaultdict(list)
+        
+        # 통계
         self.service_stats = {
-            "total_queries": 0,
-            "successful_answers": 0,
             "db_hits": 0,
             "web_searches": 0,
-            "user_satisfaction": []
+            "llm_responses": 0,
+            "avg_response_time": 0,
+            "total_queries": 0
         }
         
-        logger.info("ConcreteKoreanElectricalRAG 초기화 완료")
-        
-        # 임베딩 모델 테스트
-        self._test_embedding_model()
-    
-    def _test_embedding_model(self):
-        """임베딩 모델 기능 테스트"""
-        try:
-            test_texts = ["안녕하세요", "전기공학 테스트"]
-            logger.info("임베딩 모델 기능 테스트 시작...")
-            
-            embeddings = self.embedding_model.encode(test_texts)
-            
-            test_info = {
-                "test_texts": test_texts,
-                "embedding_shape": embeddings.shape,
-                "embedding_type": type(embeddings).__name__,
-                "sample_values": embeddings[0][:5].tolist() if len(embeddings[0]) >= 5 else embeddings[0].tolist()
+        # 특수 키워드 사전
+        self.special_keywords = {
+            "다산에듀": {
+                "answer": "미호가 다니는 회사입니다!",
+                "confidence": 1.0
             }
-            logger.info(f"임베딩 모델 테스트 성공: {test_info}")
+        }
+        
+        # ChromaDB 초기화
+        self._init_chromadb()
+        
+        # 문서 로드
+        self._load_all_documents()
+    
+    def _init_chromadb(self):
+        """ChromaDB 초기화 및 컬렉션 생성"""
+        try:
+            # 임베딩 함수 설정
+            self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name=self.embedding_model_name,
+                device="cuda" if torch.cuda.is_available() else "cpu"
+            )
+            
+            # ChromaDB 클라이언트 초기화
+            self.chroma_client = chromadb.PersistentClient(
+                path="./chroma_db",
+                settings=Settings(
+                    anonymized_telemetry=False,
+                    allow_reset=True
+                )
+            )
+            
+            # 기존 컬렉션 삭제 후 재생성
+            try:
+                self.chroma_client.delete_collection(name=self.collection_name)
+                logger.info(f"기존 컬렉션 '{self.collection_name}' 삭제")
+            except:
+                pass
+            
+            # 새 컬렉션 생성
+            self.collection = self.chroma_client.create_collection(
+                name=self.collection_name,
+                embedding_function=self.embedding_function,
+                metadata={"hnsw:space": "cosine"}
+            )
+            
+            logger.info(f"ChromaDB 컬렉션 '{self.collection_name}' 생성 완료")
             
         except Exception as e:
-            logger.error(f"임베딩 모델 테스트 실패: {e}")
-            raise RuntimeError(f"임베딩 모델이 제대로 작동하지 않습니다: {e}")
+            logger.error(f"ChromaDB 초기화 실패: {e}")
+            raise
     
-    def get_current_embedding_model_info(self) -> dict:
-        """현재 사용 중인 임베딩 모델 정보 반환"""
-        try:
-            return {
-                "model_class": self.embedding_model.__class__.__name__,
-                "embedding_dimension": self.embedding_model.get_sentence_embedding_dimension(),
-                "max_seq_length": getattr(self.embedding_model, 'max_seq_length', 'Unknown'),
-                "device": str(getattr(self.embedding_model, 'device', 'Unknown')),
-                "modules": [str(module) for module in getattr(self.embedding_model, '_modules', {}).keys()],
-                "tokenizer_type": type(getattr(self.embedding_model, 'tokenizer', None)).__name__ if hasattr(self.embedding_model, 'tokenizer') else 'Unknown'
-            }
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def load_documents_from_dataset(self, dataset_path: str = "/dataset", max_docs: int = 6000):
-        """데이터셋에서 문서 로드 및 벡터화"""
-        docs_count = 0
-        categories = defaultdict(int)
+    def _load_all_documents(self):
+        """모든 문서 로드 및 벡터화"""
+        # 1. 특수 키워드 먼저 로드
+        self._load_special_keywords()
         
-        if not os.path.exists(dataset_path):
-            logger.warning(f"데이터셋 경로가 존재하지 않음: {dataset_path}")
+        # 2. 데이터셋 문서 로드
+        self._load_dataset_documents()
+        
+        # 3. 벡터화
+        if self.documents:
+            self._vectorize_documents()
+    
+    def _load_special_keywords(self):
+        """특수 키워드를 우선 문서로 추가"""
+        doc_id = 0
+        for keyword, info in self.special_keywords.items():
+            doc_item = {
+                "id": f"special_{doc_id}",
+                "text": keyword,  # 키워드만 벡터화
+                "question": keyword,
+                "answer": info["answer"],
+                "category": "특수키워드",
+                "is_special": True,
+                "confidence": info["confidence"]
+            }
+            self.documents.append(doc_item)
+            doc_id += 1
+        
+        logger.info(f"특수 키워드 {len(self.special_keywords)}개 로드 완료")
+    
+    def _load_dataset_documents(self):
+        """데이터셋에서 문서 로드"""
+        docs_count = len(self.documents)
+        
+        # 경로 설정
+        paths_to_check = [
+            Path("./2_documents"),
+            Path("/dataset"),
+            Path("./dataset")
+        ]
+        
+        docs_path = None
+        for path in paths_to_check:
+            if path.exists():
+                docs_path = path
+                logger.info(f"문서 경로 발견: {docs_path}")
+                break
+        
+        if not docs_path:
+            logger.warning("문서 경로를 찾을 수 없습니다.")
             self._load_sample_data()
             return
         
-        # JSONL 및 다양한 형식의 파일에서 문서 로드
-        import re
+        # 파일 처리
+        for file_path in docs_path.rglob("*.txt"):
+            if docs_count >= 10000:  # 최대 문서 수
+                break
+            
+            if file_path.name.startswith("."):
+                continue
+            
+            # Q&A 형식 파일 처리
+            if any(pattern in file_path.name for pattern in ["_parsed", "_qa", "qa_"]):
+                docs_count = self._process_qa_file(file_path, docs_count)
         
-        for root, dirs, files in os.walk(dataset_path):
-            for file in files:
-                if docs_count >= max_docs:
-                    break
-                    
-                file_path = os.path.join(root, file)
-                
-                # JSONL 파일 처리
-                if file.endswith(".jsonl"):
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            for line in f:
-                                if docs_count >= max_docs:
-                                    break
-                                try:
-                                    data = json.loads(line)
-                                    if "Context" in data and "Response" in data:
-                                        context_part = data["Context"]
-                                        response_part = data["Response"]
-                                        
-                                        # 카테고리 자동 분류
-                                        category = self._categorize_document(context_part)
-                                        categories[category] += 1
-                                        
-                                        content = f"질문: {context_part} 답변: {response_part} 분류: {category}"
-                                        doc_item = {
-                                            "id": str(docs_count),
-                                            "text": content,
-                                            "question": context_part,
-                                            "answer": response_part,
-                                            "category": category
-                                        }
-                                        self.documents.append(doc_item)
-                                        docs_count += 1
-                                except Exception as e:
-                                    logger.debug(f"JSONL 파싱 오류: {e}")
-                                    continue
-                    except Exception as e:
-                        logger.warning(f"JSONL 파일 읽기 오류 {file}: {e}")
-                        continue
-                
-                # 텍스트 파일 처리 (Q&A 형식)
-                elif file.endswith((".txt", ".md")):
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            content = f.read()
-                            
-                        # Q&A 패턴 매칭: [숫자.Q] 질문 [숫자.A] 답변
-                        qa_pattern = r'\[(\d+)\.Q\]\s*([\s\S]*?)\n\s*\[(\d+)\.A\]\s*([\s\S]*?)(?=\n\s*\[\d+\.Q\]|$)'
-                        matches = re.findall(qa_pattern, content, re.MULTILINE)
-                        
-                        for match in matches:
-                            if docs_count >= max_docs:
-                                break
-                                
-                            q_num, question, a_num, answer = match
-                            if q_num == a_num:  # Q와 A 번호가 일치하는 경우만
-                                question = question.strip()
-                                answer = answer.strip()
-                                
-                                # 카테고리 자동 분류
-                                category = self._categorize_document(question)
-                                categories[category] += 1
-                                
-                                content = f"질문: {question} 답변: {answer} 분류: {category}"
-                                doc_item = {
-                                    "id": str(docs_count),
-                                    "text": content,
-                                    "question": question,
-                                    "answer": answer,
-                                    "category": category
-                                }
-                                self.documents.append(doc_item)
-                                docs_count += 1
-                                
-                    except Exception as e:
-                        logger.warning(f"텍스트 파일 읽기 오류 {file}: {e}")
-                        continue
-        
-        # 카테고리별 통계 로그
-        logger.info(f"총 로드된 문서 수: {docs_count}개")
-        logger.info("문서 카테고리 분포:")
-        for cat, count in categories.items():
-            logger.info(f"- {cat}: {count}개")
-        
-        # 문서가 로드되지 않았다면 샘플 데이터 사용
-        if docs_count == 0:
-            logger.warning("데이터셋에서 문서를 찾을 수 없음. 샘플 데이터 로드.")
-            self._load_sample_data()
-        else:
-            # 벡터화 및 저장
-            self._vectorize_documents()
+        logger.info(f"총 {docs_count}개 문서 로드 완료")
     
-    def _categorize_document(self, text: str) -> str:
-        """문서 카테고리 자동 분류 - 전기 자격증 종목별 세분화"""
+    def _process_qa_file(self, file_path: Path, start_count: int) -> int:
+        """Q&A 형식 파일 처리"""
+        docs_count = start_count
+        
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            # Q&A 패턴 매칭
+            qa_pattern = r'\[(\d+)\.Q\]\s*([\s\S]*?)\n\s*\[(\d+)\.A\]\s*([\s\S]*?)(?=\n\s*\[\d+\.Q\]|$)'
+            matches = re.findall(qa_pattern, content, re.MULTILINE)
+            
+            for match in matches:
+                q_num, question, a_num, answer = match
+                if q_num == a_num:
+                    question = question.strip()
+                    answer = answer.strip()
+                    
+                    # 빈 문서 스킵
+                    if not question or not answer:
+                        continue
+                    
+                    # 카테고리 분류
+                    category = self._categorize_simple(question)
+                    
+                    doc_item = {
+                        "id": str(docs_count),
+                        "text": question,  # 질문만 벡터화
+                        "question": question,
+                        "answer": answer,
+                        "category": category,
+                        "is_special": False,
+                        "confidence": 0.8  # 기본 신뢰도
+                    }
+                    self.documents.append(doc_item)
+                    docs_count += 1
+                    
+        except Exception as e:
+            logger.warning(f"파일 처리 오류 {file_path}: {e}")
+        
+        return docs_count
+    
+    def _categorize_simple(self, text: str) -> str:
+        """간단한 카테고리 분류"""
         text_lower = text.lower()
         
-        # 1. 전기 자격증 종목별 분류 (우선순위)
-        if any(word in text_lower for word in ["전기기사", "기사시험", "기사 시험", "기사필기", "기사실기"]):
+        # 주요 카테고리만 사용
+        if any(word in text_lower for word in ["전기기사", "기사시험", "기사 시험"]):
             return "전기기사"
-        elif any(word in text_lower for word in ["전기산업기사", "산업기사시험", "산업기사 시험", "산업기사필기", "산업기사실기"]):
+        elif any(word in text_lower for word in ["산업기사", "전기산업기사"]):
             return "전기산업기사"
-        elif any(word in text_lower for word in ["전기기능사", "기능사시험", "기능사 시험", "기능사필기", "기능사실기"]):
+        elif any(word in text_lower for word in ["기능사", "전기기능사"]):
             return "전기기능사"
-        elif any(word in text_lower for word in ["전기공사기사", "공사기사"]):
-            return "전기공사기사"
-        elif any(word in text_lower for word in ["전기공사산업기사", "공사산업기사"]):
-            return "전기공사산업기사"
-        
-        # 2. 기본 전기공학 이론 분야
-        elif any(word in text_lower for word in ["옴의법칙", "키르히호프", "전자기학", "맥스웰", "쿨롱", "패러데이", "렌츠"]):
-            return "기초이론"
-        elif any(word in text_lower for word in ["회로이론", "회로해석", "교류회로", "직류회로", "rlc회로", "공진회로"]):
+        elif any(word in text_lower for word in ["회로", "임피던스", "rc회로", "rlc"]):
             return "회로이론"
-        
-        # 3. 전기기기 분야  
-        elif any(word in text_lower for word in ["변압기", "트랜스포머", "전력변압기", "배전용변압기"]):
+        elif any(word in text_lower for word in ["변압기", "트랜스포머"]):
             return "변압기"
-        elif any(word in text_lower for word in ["유도전동기", "동기전동기", "직류전동기", "모터", "전동기"]):
+        elif any(word in text_lower for word in ["전동기", "모터", "서보모터"]):
             return "전동기"
-        elif any(word in text_lower for word in ["발전기", "동기발전기", "유도발전기", "직류발전기"]):
-            return "발전기"
-        
-        # 4. 전력공학 분야
-        elif any(word in text_lower for word in ["송전", "송전선로", "송전계통", "고압송전"]):
-            return "송전공학"
-        elif any(word in text_lower for word in ["배전", "배전선로", "배전계통", "배전용변압기"]):
-            return "배전공학"  
-        elif any(word in text_lower for word in ["전력계통", "계통운용", "전력품질", "안정도", "조상설비"]):
-            return "전력계통"
-        elif any(word in text_lower for word in ["보호계전", "계전기", "차단기", "개폐기", "피뢰기"]):
-            return "보호제어"
-        
-        # 5. 전기설비 및 시공 분야
-        elif any(word in text_lower for word in ["전기설비", "수변전설비", "배전반", "분전반"]):
-            return "전기설비"
-        elif any(word in text_lower for word in ["전기공사", "배선공사", "케이블", "전선", "도관"]):
-            return "전기공사"
-        elif any(word in text_lower for word in ["접지", "피뢰", "전기안전", "감전", "누전"]):
+        elif any(word in text_lower for word in ["발전기", "발전소", "댐", "수력"]):
+            return "발전시설"
+        elif any(word in text_lower for word in ["송전", "배전", "전력계통"]):
+            return "전력시스템"
+        elif any(word in text_lower for word in ["안전", "접지", "감전"]):
             return "전기안전"
-        
-        # 6. 신재생에너지 및 최신기술
-        elif any(word in text_lower for word in ["태양광", "풍력", "연료전지", "태양전지", "신재생에너지"]):
-            return "신재생에너지"
-        elif any(word in text_lower for word in ["전기자동차", "ev충전", "배터리", "스마트그리드"]):
-            return "최신기술"
-        
-        # 7. 전자공학 관련
-        elif any(word in text_lower for word in ["반도체", "다이오드", "트랜지스터", "ic", "증폭기"]):
-            return "전자공학"
-        elif any(word in text_lower for word in ["제어공학", "자동제어", "pid제어", "모터제어"]):
-            return "제어공학"
-        
-        # 8. 기타 일반
         else:
-            return "기타"
-    
-    def _load_sample_data(self):
-        """샘플 데이터 로드"""
-        sample_docs = [
-            {
-                "question": "옴의 법칙이 무엇인가요?",
-                "answer": "옴의 법칙은 전압(V) = 전류(I) × 저항(R)의 관계를 나타내는 전기공학의 기본 법칙입니다.",
-                "category": "기초이론"
-            },
-            {
-                "question": "교류와 직류의 차이점을 설명해주세요.",
-                "answer": "직류(DC)는 전류가 한 방향으로만 흐르며, 교류(AC)는 전류의 방향이 주기적으로 바뀝니다.",
-                "category": "회로이론"
-            },
-            {
-                "question": "변압기의 동작 원리를 알려주세요.",
-                "answer": "변압기는 패러데이의 전자기유도 법칙을 이용하여 권수비에 따라 전압을 변환합니다.",
-                "category": "변압기"
-            },
-            {
-                "question": "전기기사 시험은 어떻게 준비하나요?",
-                "answer": "전기기사 시험은 필기와 실기로 구성되며, 기본서 학습 후 기출문제를 반복 풀이하는 것이 효과적입니다.",
-                "category": "전기기사"
-            },
-            {
-                "question": "유도전동기의 동작 원리는?",
-                "answer": "유도전동기는 회전자기장에 의해 회전자가 회전하는 원리로 동작하며, 슬립에 따라 토크가 결정됩니다.",
-                "category": "전동기"
-            },
-            {
-                "question": "송전선로의 특성 임피던스는?",
-                "answer": "송전선로의 특성 임피던스는 √(L/C)로 계산되며, 일반적으로 400-500Ω 범위입니다.",
-                "category": "송전공학"
-            }
-        ]
-        
-        self.documents = []
-        for i, doc_data in enumerate(sample_docs):
-            content = f"질문: {doc_data['question']} 답변: {doc_data['answer']} 분류: {doc_data['category']}"
-            self.documents.append({
-                "id": str(i),
-                "text": content,
-                "question": doc_data["question"],
-                "answer": doc_data["answer"],
-                "category": doc_data["category"]
-            })
-        
-        self._vectorize_documents()
+            return "일반전기"
     
     def _vectorize_documents(self):
         """문서 벡터화 및 ChromaDB 저장"""
@@ -365,457 +242,202 @@ class ConcreteKoreanElectricalRAG:
             logger.warning("벡터화할 문서가 없습니다.")
             return
         
-        texts = [doc["text"] for doc in self.documents]
-        logger.info(f"한국어 벡터 임베딩 시작: {len(texts)}개 전기공학 문서")
-        
-        batch_size = 50
-        for i in range(0, len(texts), batch_size):
-            batch_texts = texts[i:i+batch_size]
-            batch_ids = [self.documents[i+j]["id"] for j in range(len(batch_texts))]
-            
-            # retrieval.passage 프롬프트 사용하여 문서 임베딩
-            embeddings = self.embedding_model.encode(
-                batch_texts, 
-                convert_to_tensor=True,
-                prompt_name="retrieval.passage",
-                prompt="Represent this document for retrieval: "
-            )
-            # BFloat16 형식을 Float32로 변환
-            if embeddings.dtype == torch.bfloat16:
-                embeddings = embeddings.float()
-            embeddings_np = embeddings.cpu().numpy()
-            
-            self.collection.add(
-                embeddings=embeddings_np.tolist(),
-                documents=batch_texts,
-                ids=batch_ids
-            )
-            
-            logger.info(f"배치 {i//batch_size + 1} 완료: {len(batch_texts)}개")
-        
-        logger.info(f"전기공학 지식베이스 구축 완료: {len(texts)}개 문서")
-    
-    def search_vector_database(self, query: str, k: int = 5) -> tuple:
-        """고도화된 벡터 검색 시스템"""
         try:
-            # 쿼리 전처리 및 확장
-            enhanced_queries = self._expand_query(query)
-            query_category = self._advanced_categorize_document(query)
+            # 배치 처리
+            batch_size = 100
+            total_batches = (len(self.documents) + batch_size - 1) // batch_size
             
-            best_results = []
+            logger.info(f"{len(self.documents)}개 문서 벡터화 시작...")
             
-            # 다중 쿼리 전략
-            for enhanced_query in enhanced_queries:
-                # retrieval.query 프롬프트 사용
-                query_with_prompt = f"Represent this query for searching relevant documents: {enhanced_query}"
-                query_embedding = self.embedding_model.encode([query_with_prompt], convert_to_tensor=True, prompt_name="retrieval.query")
+            for i in range(0, len(self.documents), batch_size):
+                batch = self.documents[i:i + batch_size]
                 
-                # BFloat16 처리
-                if query_embedding.dtype == torch.bfloat16:
-                    query_embedding = query_embedding.float()
-                query_embedding_np = query_embedding.cpu().numpy()
+                # 데이터 준비
+                texts = [doc["text"] for doc in batch]
+                metadatas = [{
+                    "question": doc["question"],
+                    "answer": doc["answer"],
+                    "category": doc["category"],
+                    "is_special": doc.get("is_special", False),
+                    "confidence": doc.get("confidence", 0.8)
+                } for doc in batch]
+                ids = [doc["id"] for doc in batch]
                 
-                results = self.collection.query(
-                    query_embeddings=query_embedding_np.tolist(),
-                    n_results=k * 3,  # 더 많이 가져와서 고품질 필터링
-                    include=['distances', 'documents', 'metadatas']
+                # ChromaDB에 추가
+                self.collection.add(
+                    documents=texts,
+                    metadatas=metadatas,
+                    ids=ids
                 )
                 
-                if results["documents"] and len(results["documents"]) > 0:
-                    documents = results["documents"][0]
-                    distances = results["distances"][0]
-                    ids = results["ids"][0]
-                    
-                    # 고도화된 점수 계산
-                    for doc, distance, doc_id in zip(documents, distances, ids):
-                        doc_info = self._get_document_info(doc_id)
-                        if not doc_info:
-                            continue
-                            
-                        # 다중 지표 기반 점수
-                        scores = self._calculate_multi_score(query, enhanced_query, doc, doc_info, distance, query_category)
-                        
-                        # 점진적 임계값 적용 (더 낮은 값)
-                        threshold = 0.25 if len(best_results) < 3 else 0.4
-                        if scores['final_score'] > threshold:
-                            best_results.append({
-                                "content": doc,
-                                "doc_info": doc_info,
-                                "scores": scores,
-                                "similarity": scores['cosine_similarity'],
-                                "final_score": scores['final_score'],
-                                "query_type": enhanced_query
-                            })
+                current_batch = i // batch_size + 1
+                if current_batch % 10 == 0:
+                    logger.info(f"벡터화 진행: {current_batch}/{total_batches} 배치 완료")
             
-            # 중복 제거 및 정렬
-            unique_results = self._deduplicate_results(best_results)
-            unique_results.sort(key=lambda x: x["final_score"], reverse=True)
+            logger.info(f"벡터화 완료: {len(self.documents)}개 문서")
             
-            if unique_results:
-                self.service_stats["db_hits"] += 1
-                return unique_results[:k], True
-            
-            return [], False
         except Exception as e:
-            logger.error(f"벡터 검색 실패: {str(e)}")
-            return [], False
+            logger.error(f"벡터화 실패: {e}")
+            raise
     
-    def _expand_query(self, query: str) -> List[str]:
-        """쿼리 확장 및 다중 버전 생성"""
-        queries = [query]  # 원본 쿼리
+    def search(self, query: str, k: int = 10) -> Tuple[List[Dict], float]:
+        """개선된 검색 알고리즘"""
+        start_time = time.time()
         
-        # 전기공학 동의어 확장
-        synonyms = {
-            '전압': ['볼트', 'V', '전위차'],
-            '전류': ['암페어', 'A', '전류값'],
-            '저항': ['오예', 'Ω', 'R'],
-            '변압기': ['트랜스포머', '전력변압기'],
-            '모터': ['전동기', '유도전동기'],
-            '발전기': ['동기', '제너레이터']
-        }
+        # 1. 특수 키워드 확인
+        special_result = self._check_special_keywords(query)
+        if special_result:
+            return [special_result], 1.0
         
-        for word, alternatives in synonyms.items():
-            if word in query:
-                for alt in alternatives:
-                    queries.append(query.replace(word, alt))
+        # 2. 벡터 검색
+        results = self._vector_search(query, k * 2)  # 더 많은 후보 검색
         
-        # 기술적 맥락 추가
-        if any(term in query for term in ['계산', '구하기', '방법']):
-            queries.append(f"{query} 공식 단계")
-            queries.append(f"{query} 해결 방법")
+        # 3. 결과 재정렬 및 필터링
+        final_results = self._rerank_results(query, results, k)
         
-        return queries[:3]  # 최대 3개로 제한
+        # 4. 최고 점수 계산
+        max_score = max([r["score"] for r in final_results]) if final_results else 0.0
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"검색 완료: {len(final_results)}개 결과, 최고점수: {max_score:.3f}, 소요시간: {elapsed_time:.2f}초")
+        
+        return final_results, max_score
     
-    def _advanced_categorize_document(self, text: str) -> str:
-        """고도화된 문서 분류 - 확장된 카테고리 지원"""
-        category_keywords = {
-            # 자격증 종목별
-            '전기기사': ['전기기사', '기사시험', '기사필기', '기사실기'],
-            '전기산업기사': ['전기산업기사', '산업기사시험', '산업기사필기', '산업기사실기'],
-            '전기기능사': ['전기기능사', '기능사시험', '기능사필기', '기능사실기'],
-            '전기공사기사': ['전기공사기사', '공사기사'],
-            
-            # 이론 분야별
-            '기초이론': ['옴의법칙', '키르히호프', '전자기학', '맥스웰', '쿨롱', '패러데이'],
-            '회로이론': ['회로이론', '회로해석', '교류회로', '직류회로', 'rlc회로'],
-            
-            # 기기별
-            '변압기': ['변압기', '트랜스포머', '전력변압기'],
-            '전동기': ['유도전동기', '동기전동기', '직류전동기', '모터'],
-            '발전기': ['발전기', '동기발전기', '유도발전기'],
-            
-            # 시스템별
-            '송전공학': ['송전', '송전선로', '송전계통'],
-            '배전공학': ['배전', '배전선로', '배전계통'],
-            '전력계통': ['전력계통', '계통운용', '전력품질', '안정도'],
-            '보호제어': ['보호계전', '계전기', '차단기'],
-            
-            # 설비/공사별  
-            '전기설비': ['전기설비', '수변전설비', '배전반'],
-            '전기공사': ['전기공사', '배선공사', '케이블'],
-            '전기안전': ['접지', '피뢰', '전기안전', '감전'],
-            
-            # 신기술별
-            '신재생에너지': ['태양광', '풍력', '연료전지', '신재생에너지'],
-            '최신기술': ['전기자동차', 'ev충전', '스마트그리드'],
-            '전자공학': ['반도체', '다이오드', '트랜지스터'],
-            '제어공학': ['제어공학', '자동제어', 'pid제어']
-        }
+    def _check_special_keywords(self, query: str) -> Optional[Dict]:
+        """특수 키워드 확인"""
+        query_lower = query.lower()
         
-        text_lower = text.lower()
-        scores = {}
+        for keyword, info in self.special_keywords.items():
+            if keyword.lower() in query_lower:
+                return {
+                    "question": keyword,
+                    "answer": info["answer"],
+                    "score": info["confidence"],
+                    "category": "특수키워드"
+                }
         
-        for category, keywords in category_keywords.items():
-            score = sum(1 for keyword in keywords if keyword.lower() in text_lower)
-            if score > 0:
-                scores[category] = score
-        
-        return max(scores.items(), key=lambda x: x[1])[0] if scores else '기타'
-    
-    def _get_document_info(self, doc_id: str) -> Optional[Dict]:
-        """문서 정보 고속 검색"""
-        for doc in self.documents:
-            if doc["id"] == doc_id:
-                return doc
         return None
     
-    def _calculate_multi_score(self, original_query: str, enhanced_query: str, doc: str, doc_info: Dict, distance: float, query_category: str) -> Dict:
-        """다중 지표 기반 점수 계산"""
-        cosine_similarity = 1 - distance
-        
-        # 1. 의미적 유사도
-        semantic_score = cosine_similarity
-        
-        # 2. 카테고리 일치도
-        category_score = 0.15 if doc_info["category"] == query_category else 0
-        
-        # 3. 키워드 매칭 (정밀 검색)
-        original_words = set(original_query.split())
-        doc_words = set(doc.lower().split())
-        keyword_overlap = len(original_words.intersection(doc_words)) / max(len(original_words), 1)
-        keyword_score = keyword_overlap * 0.2
-        
-        # 4. 문서 품질 점수
-        quality_score = 0.1 if len(doc_info.get("answer", "")) > 50 else 0
-        
-        # 5. 길이 기반 정규화
-        length_penalty = 0.05 if len(doc) > 1000 else 0  # 너무 긴 문서 페널티
-        
-        final_score = semantic_score + category_score + keyword_score + quality_score - length_penalty
-        
-        return {
-            'cosine_similarity': cosine_similarity,
-            'semantic_score': semantic_score,
-            'category_score': category_score,
-            'keyword_score': keyword_score,
-            'quality_score': quality_score,
-            'final_score': min(final_score, 1.0)  # 1.0 최대값 제한
-        }
-    
-    def _deduplicate_results(self, results: List[Dict]) -> List[Dict]:
-        """중복 결과 제거"""
-        seen_ids = set()
-        unique_results = []
-        
-        for result in results:
-            doc_id = result["doc_info"]["id"]
-            if doc_id not in seen_ids:
-                seen_ids.add(doc_id)
-                unique_results.append(result)
-        
-        return unique_results
-    
-    def search_web(self, query: str, max_results: int = 3) -> List[Dict]:
-        """지능형 웹 검색 시스템"""
+    def _vector_search(self, query: str, k: int) -> List[Dict]:
+        """벡터 검색 수행"""
         try:
-            with DDGS() as ddgs:
-                # 다양한 검색 전략
-                search_queries = [
-                    f"전기공학 {query}",
-                    f"{query} 해설",
-                    f"{query} 기초 이론",
-                    query  # 원본 쿼리
-                ]
+            # ChromaDB 검색
+            results = self.collection.query(
+                query_texts=[query],
+                n_results=k,
+                include=["metadatas", "distances", "documents"]
+            )
+            
+            if not results["ids"][0]:
+                return []
+            
+            # 결과 변환
+            search_results = []
+            for i in range(len(results["ids"][0])):
+                metadata = results["metadatas"][0][i]
+                distance = results["distances"][0][i]
                 
-                all_results = []
+                # 코사인 유사도 계산 (거리를 유사도로 변환)
+                similarity = 1 - distance
                 
-                for search_query in search_queries[:2]:  # 상위 2개 전략만 사용
-                    try:
-                        web_results = list(ddgs.text(search_query, region="ko-kr", max_results=max_results))
-                
-                        for result in web_results:
-                            all_results.append(result)
-                    except:
-                        continue
-                
-                # 결과 처리 및 필터링
-                processed_results = []
-                seen_urls = set()
-                
-                for result in all_results:
-                    url = result.get("href", "")
-                    if url in seen_urls:  # 중복 URL 제거
-                        continue
-                    seen_urls.add(url)
-                    
-                    title = result.get("title", "")
-                    body = result.get("body", "")
-                    
-                    # 전기공학 관련성 검증
-                    relevance_score = self._calculate_web_relevance(query, title, body)
-                    if relevance_score < 0.3:  # 관련성 낮은 결과 제외
-                        continue
-                    
-                    # 신뢰도 점수 계산
-                    trust_domains = [".edu", ".ac.kr", ".go.kr", "kea.kr", "kstec.or.kr", "keit.re.kr"]
-                    trust_score = 2.0 if any(domain in url for domain in trust_domains) else 1.0
-                    
-                    # 최종 점수
-                    final_score = relevance_score * trust_score
-                    
-                    processed_results.append({
-                        "title": title[:100],  # 제목 길이 제한
-                        "snippet": body[:300],  # 내용 길이 증가
-                        "url": url,
-                        "trust_score": trust_score,
-                        "relevance_score": relevance_score,
-                        "final_score": final_score
-                    })
-                
-                # 최종 점수순 정렬
-                processed_results.sort(key=lambda x: x["final_score"], reverse=True)
-                
-                # 상위 결과만 반환
-                top_results = processed_results[:max_results]
-                if top_results:
-                    self.service_stats["web_searches"] += 1
-                
-                return top_results
+                search_results.append({
+                    "question": metadata["question"],
+                    "answer": metadata["answer"],
+                    "score": similarity,
+                    "category": metadata["category"],
+                    "is_special": metadata.get("is_special", False),
+                    "base_confidence": metadata.get("confidence", 0.8)
+                })
+            
+            return search_results
+            
         except Exception as e:
-            logger.error(f"웹 검색 실패: {str(e)}")
+            logger.error(f"벡터 검색 실패: {e}")
             return []
     
-    def _calculate_web_relevance(self, query: str, title: str, body: str) -> float:
-        """웹 검색 결과 관련성 계산"""
-        try:
-            # 확장된 전기공학 핵심 키워드
-            electrical_keywords = [
-                # 기본 전기 개념
-                '전기', '전력', '전압', '전류', '저항', '회로', '임피던스', '인덕턴스', '커패시턴스',
-                # 전기기기
-                '변압기', '모터', '발전기', '전동기', '동기기', '유도기', '직류기',
-                # 전력시스템
-                '송전', '배전', '전력계통', '수변전', '보호계전', '차단기', '개폐기',
-                # 전기설비/공사
-                '전기설비', '배선', '케이블', '전선', '접지', '피뢰', '분전반', '배전반',
-                # 제어/전자
-                '제어', '자동제어', 'pid', '반도체', '다이오드', '트랜지스터', 'ic',
-                # 신기술
-                '태양광', '풍력', '신재생', '스마트그리드', '전기자동차', 'ev충전',
-                # 단위/측정
-                '와트', '암페어', '볼트', '옴', '헤르츠', 'kw', 'kv', 'a', 'v', 'hz',
-                # 자격증/시험
-                '전기기사', '전기산업기사', '전기기능사', '전기공사기사', '기사', '산업기사', '기능사', '자격증', '시험', '필기', '실기'
-            ]
-            
-            combined_text = f"{title} {body}".lower()
-            query_lower = query.lower()
-            
-            # 1. 직접 쿼리 매칭
-            query_match = 0.5 if query_lower in combined_text else 0
-            
-            # 2. 전기공학 키워드 매칭
-            keyword_matches = sum(1 for keyword in electrical_keywords if keyword in combined_text)
-            keyword_score = min(keyword_matches * 0.1, 0.4)
-            
-            # 3. 제목 중요도 가중치
-            title_bonus = 0.2 if any(keyword in title.lower() for keyword in electrical_keywords) else 0
-            
-            # 4. 문서 품질 평가
-            quality_score = 0.1 if len(body) > 100 else 0  # 충분한 내용이 있음
-            
-            total_score = query_match + keyword_score + title_bonus + quality_score
-            return min(total_score, 1.0)
-            
-        except:
-            return 0.3  # 기본값
-    
-    def check_electrical_relevance(self, query: str) -> bool:
-        """확장된 전기공학 관련성 확인"""
-        electrical_keywords = [
-            # 기본 전기 개념
-            "전기", "전력", "전압", "전류", "저항", "회로", "임피던스", "인덕턴스", "커패시턴스",
-            "교류", "직류", "AC", "DC", "주파수", "위상", "역률", "전력인수",
-            
-            # 전기기기
-            "변압기", "트랜스포머", "모터", "전동기", "발전기", "동기기", "유도기", "직류기",
-            "단상", "삼상", "권선", "철심", "자속", "토크", "슬립", "회전수",
-            
-            # 전력시스템  
-            "송전", "배전", "전력계통", "수변전", "변전소", "보호계전", "차단기", "개폐기",
-            "안정도", "조상설비", "무효전력", "전력품질", "고조파", "플리커",
-            
-            # 전기설비/공사
-            "전기설비", "수변전설비", "배선", "케이블", "전선", "도관", "덕트",
-            "접지", "피뢰", "누전", "감전", "분전반", "배전반", "제어반",
-            
-            # 제어/전자
-            "제어", "자동제어", "pid제어", "시퀀스제어", "프로그래머블로직컨트롤러", "plc",
-            "반도체", "다이오드", "트랜지스터", "thyristor", "ic", "증폭기", "인버터",
-            
-            # 신기술/에너지
-            "태양광", "태양전지", "풍력", "연료전지", "신재생에너지", "esg",
-            "스마트그리드", "전기자동차", "ev충전", "배터리", "ess", "마이크로그리드",
-            
-            # 단위/측정
-            "와트", "암페어", "볼트", "옴", "헤르츠", "바", "var", "va",
-            "kw", "kv", "ka", "mw", "gw", "kva", "mva", "kwh", "mwh",
-            "a", "v", "w", "hz", "ω", "°", "φ", "cosφ",
-            
-            # 자격증/시험/교육
-            "전기기사", "전기산업기사", "전기기능사", "전기공사기사", "전기공사산업기사",
-            "기사", "산업기사", "기능사", "자격증", "시험", "필기", "실기", "기출문제",
-            "전기공학", "전력공학", "전기기기", "회로이론", "제어공학", "전자공학"
-        ]
+    def _rerank_results(self, query: str, results: List[Dict], k: int) -> List[Dict]:
+        """결과 재정렬 및 점수 조정"""
+        if not results:
+            return []
         
         query_lower = query.lower()
-        return any(keyword.lower() in query_lower for keyword in electrical_keywords)
-    
-    def get_service_statistics(self) -> str:
-        """서비스 통계 제공"""
-        stats = []
-        stats.append("📊 **전기공학 통합 서비스 통계**\n")
-        stats.append(f"• 총 질의: {self.service_stats['total_queries']}건")
-        stats.append(f"• 성공 답변: {self.service_stats['successful_answers']}건")
-        stats.append(f"• DB 적중: {self.service_stats['db_hits']}건")
-        stats.append(f"• 웹 검색: {self.service_stats['web_searches']}건")
+        query_words = set(query_lower.split())
         
-        if self.service_stats["total_queries"] > 0:
-            success_rate = self.service_stats["successful_answers"] / self.service_stats["total_queries"] * 100
-            db_hit_rate = self.service_stats["db_hits"] / self.service_stats["total_queries"] * 100
-            stats.append(f"\n• 응답 성공률: {round(success_rate, 1)}%")
-            stats.append(f"• DB 활용률: {round(db_hit_rate, 1)}%")
-        
-        stats.append(f"\n• 지식베이스: {len(self.documents)}개 문서")
-        stats.append(f"• 활성 사용자: {len(self.user_history)}명")
-        
-        # 임베딩 모델 정보 추가
-        stats.append("\n**🔧 시스템 정보:**")
-        model_info = self.get_current_embedding_model_info()
-        if "error" not in model_info:
-            stats.append(f"• 임베딩 모델: {model_info.get('model_class', 'Unknown')}")
-            stats.append(f"• 임베딩 차원: {model_info.get('embedding_dimension', 'Unknown')}")
-            stats.append(f"• 최대 시퀀스: {model_info.get('max_seq_length', 'Unknown')}")
-            stats.append(f"• 디바이스: {model_info.get('device', 'Unknown')}")
-            if model_info.get('tokenizer_type') != 'Unknown':
-                stats.append(f"• 토크나이저: {model_info.get('tokenizer_type', 'Unknown')}")
-        else:
-            stats.append(f"• 모델 정보 오류: {model_info['error']}")
-        
-        return "\n".join(stats)
-    
-    def enhanced_search_pipeline(self, query: str) -> tuple:
-        """향상된 통합 검색 파이프라인 - 확장된 범위 지원"""
-        # 1. 전기공학 관련성 확인 (확장된 키워드로)
-        if not self.check_electrical_relevance(query):
-            return [], "non_electrical"
-        
-        # 2. 벡터 검색 실행 (고도화된 다중 지표)
-        db_results, db_found = self.search_vector_database(query)
-        
-        # 3. 신뢰도 기반 검색 전략 결정
-        if db_found and len(db_results) > 0:
-            highest_score = db_results[0]["final_score"]
+        # 점수 재계산
+        for result in results:
+            # 기본 점수 (코사인 유사도)
+            base_score = result["score"]
             
-            if highest_score > 0.70:
-                # 매우 고신뢰도 - 직접 DB 답변
-                return db_results, "very_high_confidence_db"
-            elif highest_score > 0.55:
-                # 고신뢰도 - DB 답변 + 보강
-                return db_results, "high_confidence_db"
-            elif highest_score > 0.40:
-                # 중간신뢰도 - LLM 재구성
-                return db_results, "medium_confidence_db"
-            elif highest_score > 0.25:
-                # 저신뢰도 - 하이브리드 시도
-                web_results = self.search_web(query)
-                if web_results:
-                    return (db_results, web_results), "hybrid_search"
-                else:
-                    return db_results, "low_confidence_db"
+            # 키워드 매칭 보너스
+            question_lower = result["question"].lower()
+            question_words = set(question_lower.split())
+            
+            # 정확한 단어 매칭
+            exact_matches = len(query_words.intersection(question_words))
+            keyword_bonus = exact_matches * 0.1
+            
+            # 부분 문자열 매칭
+            substring_bonus = 0
+            for word in query_words:
+                if len(word) > 2 and word in question_lower:
+                    substring_bonus += 0.05
+            
+            # 카테고리 보너스
+            category_bonus = 0
+            if result["category"] == "특수키워드":
+                category_bonus = 0.2
+            
+            # 최종 점수 계산
+            final_score = base_score + keyword_bonus + substring_bonus + category_bonus
+            final_score = min(final_score, 1.0)  # 최대 1.0
+            
+            # 신뢰도 조정
+            final_score *= result["base_confidence"]
+            
+            result["score"] = final_score
+            result["debug_scores"] = {
+                "base": base_score,
+                "keyword": keyword_bonus,
+                "substring": substring_bonus,
+                "category": category_bonus
+            }
         
-        # 4. DB 결과가 부족한 경우 웹검색 시도
-        web_results = self.search_web(query)
-        if web_results:
-            if db_found and len(db_results) > 0:
-                # DB + 웹 하이브리드
-                return (db_results, web_results), "hybrid_search"
-            else:
-                # 웹검색 전용
-                return web_results, "web_only"
+        # 점수 기준 정렬
+        results.sort(key=lambda x: x["score"], reverse=True)
         
-        # 5. 모든 검색이 실패한 경우
-        if db_found and len(db_results) > 0:
-            return db_results, "fallback_db"
-        else:
-            return [], "no_results"
+        # 임계값 필터링 (매우 낮은 값으로 설정)
+        threshold = 0.1
+        filtered_results = [r for r in results if r["score"] >= threshold]
+        
+        return filtered_results[:k]
+    
+    def _load_sample_data(self):
+        """샘플 데이터 로드"""
+        sample_qa_pairs = [
+            {
+                "question": "다산에듀는 무엇인가요?",
+                "answer": "미호가 다니는 회사입니다!"
+            },
+            {
+                "question": "R-C회로 합성 임피던스에서 -j를 붙이는 이유는?",
+                "answer": "커패시터의 용량성 리액턴스 Xc는 전류가 전압보다 90도 앞서기 때문에, 이를 복소평면에서 표현하면 -jXc가 됩니다."
+            },
+            {
+                "question": "과도현상과 인덕턴스 L의 관계는?",
+                "answer": "인덕터는 전류가 갑자기 바뀌는 걸 싫어합니다. 스위치를 켜면, 인덕터 전류는 0에서부터 서서히 올라갑니다. 이 '서서히 올라가는 과정'이 바로 과도현상입니다."
+            }
+        ]
+        
+        for i, qa in enumerate(sample_qa_pairs):
+            doc_item = {
+                "id": f"sample_{i}",
+                "text": qa["question"],
+                "question": qa["question"],
+                "answer": qa["answer"],
+                "category": "샘플데이터",
+                "is_special": False,
+                "confidence": 0.9
+            }
+            self.documents.append(doc_item)
+        
+        logger.info(f"샘플 데이터 {len(sample_qa_pairs)}개 로드")

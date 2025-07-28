@@ -37,26 +37,30 @@ class LLMClient:
     def query(self, prompt: str, context: str = "", max_tokens: int = 800, temperature: float = 0.1) -> str:
         """LLM 질의 - 전기공학 전문 최적화"""
         try:
-            # 전문 시스템 역할 정의
-            system_role = """당신은 전기공학 전문가입니다. 다음 원칙을 따라 답변하세요:
-1. 정확한 기술적 설명과 수식 제공
-2. 실무적 관점에서 구체적 해답 제시  
-3. 관련 법규나 기준이 있다면 명시
-4. 불확실한 경우 "추가 확인이 필요합니다"라고 명시
-5. 한국어로 전문 용어를 정확히 사용"""
+            # 전문 시스템 역할 정의 (더 구체적으로)
+            system_role = """당신은 한국의 전기공학 전문가입니다. 전기기사, 전기산업기사, 전기기능사 시험 출제위원이며 현장 경력 20년의 베테랑입니다.
+
+답변 원칙:
+1. 한국 전기설비기술기준(KEC)과 전기사업법을 준수
+2. 실무 경험을 바탕으로 구체적이고 실용적인 답변
+3. 필요시 공식, 회로도, 계산 과정 포함
+4. 전문 용어는 한국어와 영어 병기
+5. 확실하지 않은 내용은 "확인이 필요합니다"라고 명시"""
             
             # 고급 프롬프트 구성
             if context:
                 # 컨텍스트 전처리 및 구조화
                 structured_context = self._structure_context(context)
                 
+                # 컨텍스트가 있을 때는 더 정확한 답변 유도
                 full_prompt = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>{system_role}<|eot_id|>"
                 full_prompt += f"<|start_header_id|>user<|end_header_id|>"
-                full_prompt += f"참고 자료:\n{structured_context}\n\n"
-                full_prompt += f"질문: {prompt}\n\n"
-                full_prompt += f"위 참고자료를 바탕으로 정확하고 전문적인 답변을 제공해주세요."
+                full_prompt += f"[참고 자료]\n{structured_context}\n\n"
+                full_prompt += f"[질문] {prompt}\n\n"
+                full_prompt += f"위 참고자료를 반드시 활용하여 답변하세요. 참고자료와 다른 내용은 답변하지 마세요."
                 full_prompt += f"<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
             else:
+                # 컨텍스트가 없을 때는 일반적인 전문 지식으로 답변
                 full_prompt = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>{system_role}<|eot_id|>"
                 full_prompt += f"<|start_header_id|>user<|end_header_id|>{prompt}<|eot_id|>"
                 full_prompt += f"<|start_header_id|>assistant<|end_header_id|>"
