@@ -21,7 +21,7 @@ class ImprovedRAGService:
         """개선된 RAG 서비스 초기화"""
         self.llm_client = llm_client
         self.rag_system = ImprovedRAGSystem(
-            embedding_model_name="jinaai/jina-embeddings-v3",
+            embedding_model_name="BAAI/bge-m3",
             llm_client=llm_client
         )
         self.conversation_history = []
@@ -214,7 +214,7 @@ def create_gradio_app(llm_url: str = "http://localhost:8000") -> gr.Blocks:
             - 전기 설비 및 안전
             
             **개선사항:**
-            - jinaai/jina-embeddings-v3 임베딩 모델
+            - BAAI/bge-m3 임베딩 모델
             - 향상된 검색 정확도
             - 특수 키워드 처리
             """
