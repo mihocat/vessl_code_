@@ -1,513 +1,160 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-개선된 RAG 시스템 - 정확도 향상을 위한 전면 재설계
+Improved RAG System
+개선된 RAG (Retrieval-Augmented Generation) 시스템
 """
 
-import json
 import os
-import re
 import time
-from pathlib import Path
+import logging
 from typing import List, Dict, Optional, Tuple
-from collections import defaultdict
-import asyncio
+from dataclasses import dataclass
+
 import torch
 import numpy as np
-from datetime import datetime
-
 import chromadb
 from chromadb.config import Settings
-from chromadb.utils import embedding_functions
-from ddgs import DDGS
+from sentence_transformers import SentenceTransformer
+
+from config import RAGConfig, DatasetConfig
+from document_loader import DatasetLoader
 from llm_client import LLMClient
 
-import logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# 환경 변수 설정
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["SENTENCE_TRANSFORMERS_TRUST_REMOTE_CODE"] = "true"
 
-class ImprovedRAGSystem:
-    def __init__(
-        self,
-        embedding_model_name: str = "jinaai/jina-embeddings-v3",
-        collection_name: str = "electrical_qa_v3",
-        llm_client: Optional[LLMClient] = None
-    ):
-        """개선된 RAG 시스템 초기화"""
-        self.embedding_model_name = embedding_model_name
-        self.collection_name = collection_name
-        self.llm_client = llm_client
-        self.documents = []
-        
-        # 통계
-        self.service_stats = {
-            "db_hits": 0,
-            "web_searches": 0,
-            "llm_responses": 0,
-            "avg_response_time": 0,
-            "total_queries": 0
-        }
-        
-        # 특수 키워드 사전 제거 - 범용 AI로 변경
-        self.special_keywords = {}
-        
-        # ChromaDB 초기화
-        self._init_chromadb()
-        
-        # 문서 로드
-        self._load_all_documents()
+
+@dataclass
+class SearchResult:
+    """검색 결과 데이터 클래스"""
+    question: str
+    answer: str
+    score: float
+    category: str = "general"
+    metadata: Dict = None
     
-    def _init_chromadb(self):
-        """ChromaDB 초기화 및 컬렉션 생성"""
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
+
+
+class ChromaEmbeddingFunction:
+    """ChromaDB용 임베딩 함수"""
+    
+    def __init__(self, model: SentenceTransformer):
+        self.model = model
+        
+    def __call__(self, input: List[str]) -> List[List[float]]:
+        """임베딩 생성"""
+        embeddings = self.model.encode(input, normalize_embeddings=True)
+        return embeddings.tolist()
+
+
+class VectorStore:
+    """벡터 저장소 관리 클래스"""
+    
+    def __init__(self, config: RAGConfig, embedding_model: SentenceTransformer):
+        self.config = config
+        self.embedding_function = ChromaEmbeddingFunction(embedding_model)
+        self.client = None
+        self.collection = None
+        self._initialize()
+        
+    def _initialize(self):
+        """ChromaDB 초기화"""
         try:
-            import os
-            os.environ["TOKENIZERS_PARALLELISM"] = "false"
-            os.environ["SENTENCE_TRANSFORMERS_TRUST_REMOTE_CODE"] = "true"
-            
-            # jina-embeddings-v3를 위한 커스텀 임베딩 함수
-            from sentence_transformers import SentenceTransformer
-            
-            # trust_remote_code 파라미터로 모델 로드
-            self.model = SentenceTransformer(
-                self.embedding_model_name,
-                trust_remote_code=True,
-                device="cuda" if torch.cuda.is_available() else "cpu"
-            )
-            
-            # ChromaDB용 커스텀 임베딩 함수 클래스
-            class JinaEmbeddingFunction:
-                def __init__(self, model):
-                    self.model = model
-                    
-                def __call__(self, input):
-                    # ChromaDB는 'input' 파라미터를 기대함
-                    embeddings = self.model.encode(input, normalize_embeddings=True)
-                    return embeddings.tolist()
-            
-            self.embedding_function = JinaEmbeddingFunction(self.model)
-            
-            # ChromaDB 클라이언트 초기화
-            self.chroma_client = chromadb.PersistentClient(
-                path="./chroma_db",
+            # ChromaDB 클라이언트 생성
+            self.client = chromadb.PersistentClient(
+                path=self.config.chroma_db_path,
                 settings=Settings(
                     anonymized_telemetry=False,
                     allow_reset=True
                 )
             )
             
-            # 기존 컬렉션 삭제 후 재생성
+            # 기존 컬렉션 삭제
             try:
-                self.chroma_client.delete_collection(name=self.collection_name)
-                logger.info(f"기존 컬렉션 '{self.collection_name}' 삭제")
-            except:
+                self.client.delete_collection(name=self.config.collection_name)
+                logger.info(f"Deleted existing collection: {self.config.collection_name}")
+            except Exception:
                 pass
             
             # 새 컬렉션 생성
-            self.collection = self.chroma_client.create_collection(
-                name=self.collection_name,
+            self.collection = self.client.create_collection(
+                name=self.config.collection_name,
                 embedding_function=self.embedding_function,
                 metadata={"hnsw:space": "cosine"}
             )
             
-            logger.info(f"ChromaDB 컬렉션 '{self.collection_name}' 생성 완료")
+            logger.info(f"Created new collection: {self.config.collection_name}")
             
         except Exception as e:
-            logger.error(f"ChromaDB 초기화 실패: {e}")
+            logger.error(f"Failed to initialize ChromaDB: {e}")
             raise
     
-    def _load_all_documents(self):
-        """모든 문서 로드 및 벡터화"""
-        # 데이터셋 문서만 로드 (특수 키워드 제거)
-        self._load_dataset_documents()
-        
-        # 벡터화
-        if self.documents:
-            self._vectorize_documents()
-    
-    # 특수 키워드 메서드 제거 - 더 이상 사용하지 않음
-    
-    def _load_dataset_documents(self):
-        """데이터셋에서 문서 로드"""
-        docs_count = len(self.documents)
-        
-        # 경로 설정
-        paths_to_check = [
-            Path("/dataset"),
-            Path("./dataset"),
-            Path("./2_documents"),
-            Path("/data"),
-            Path("./data")
-        ]
-        
-        # 현재 작업 디렉토리 확인
-        logger.info(f"현재 작업 디렉토리: {os.getcwd()}")
-        logger.info(f"디렉토리 내용: {os.listdir('.')}")
-        
-        # 환경변수 확인
-        logger.info(f"DATASET_PATH 환경변수: {os.environ.get('DATASET_PATH', 'Not set')}")
-        
-        docs_path = None
-        for path in paths_to_check:
-            logger.info(f"경로 확인 중: {path.absolute()}")
-            if path.exists():
-                docs_path = path
-                logger.info(f"문서 경로 발견: {docs_path.absolute()}")
-                # 디렉토리 내용 확인
-                if docs_path.is_dir():
-                    items = list(docs_path.iterdir())
-                    logger.info(f"디렉토리 내 항목 수: {len(items)}")
-                    if items:
-                        logger.info(f"처음 10개 항목: {[item.name for item in items[:10]]}")
-                        # 파일 타입 확인
-                        file_types = {}
-                        for item in items:
-                            if item.is_file():
-                                ext = item.suffix
-                                file_types[ext] = file_types.get(ext, 0) + 1
-                        logger.info(f"파일 타입별 개수: {file_types}")
-                break
-            else:
-                logger.info(f"경로 {path.absolute()} 존재하지 않음")
-        
-        if not docs_path:
-            logger.warning("문서 경로를 찾을 수 없습니다.")
-            # 루트 디렉토리 탐색
-            logger.info("루트 디렉토리 탐색:")
-            for item in Path("/").iterdir():
-                if item.is_dir() and not item.name.startswith('.'):
-                    logger.info(f"  /{item.name}")
-            # 샘플 데이터 로드 제거 - 데이터셋만 사용
+    def add_documents(self, documents: List[Dict[str, str]]):
+        """문서 벡터화 및 저장"""
+        if not documents:
+            logger.warning("No documents to vectorize")
             return
-        
-        # 파일 처리 - 다양한 확장자 지원
-        all_files = []
-        for ext in ['*.txt', '*.json', '*.jsonl', '*.csv', '*.tsv']:
-            files = list(docs_path.rglob(ext))
-            if files:
-                all_files.extend(files)
-                logger.info(f"{ext} 파일 {len(files)}개 발견")
-        
-        logger.info(f"총 발견된 파일 수: {len(all_files)}")
-        
-        # 파일 이름 샘플 출력
-        if all_files:
-            logger.info(f"첫 5개 파일: {[f.name for f in all_files[:5]]}")
-        
-        processed_files = 0
-        for file_path in all_files:
-            if docs_count >= 10000:  # 최대 문서 수
-                break
             
-            if file_path.name.startswith("."):
-                continue
+        total_docs = len(documents)
+        logger.info(f"Starting vectorization of {total_docs} documents...")
+        
+        # 배치 처리
+        for i in range(0, total_docs, self.config.batch_size):
+            batch = documents[i:i + self.config.batch_size]
             
-            # 파일 확장자에 따라 처리
-            logger.info(f"파일 처리 중: {file_path.name}")
-            prev_count = docs_count
+            # 데이터 준비
+            texts = []
+            metadatas = []
+            ids = []
             
-            if file_path.suffix == '.txt':
-                docs_count = self._process_qa_file(file_path, docs_count)
-            elif file_path.suffix in ['.json', '.jsonl']:
-                docs_count = self._process_json_file(file_path, docs_count)
-            elif file_path.suffix in ['.csv', '.tsv']:
-                docs_count = self._process_csv_file(file_path, docs_count)
-            
-            if docs_count > prev_count:
-                processed_files += 1
-                logger.info(f"파일 {file_path.name}에서 {docs_count - prev_count}개 문서 추가")
-        
-        logger.info(f"처리된 파일 수: {processed_files}")
-        
-        actual_loaded = len(self.documents)
-        logger.info(f"총 {actual_loaded}개 문서 로드 완료 (시작: {len(self.documents) - actual_loaded}, 추가: {actual_loaded})")
-    
-    def _process_qa_file(self, file_path: Path, start_count: int) -> int:
-        """Q&A 형식 파일 처리"""
-        docs_count = start_count
-        
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            
-            # Q&A 패턴 매칭 - 더 유연한 패턴들
-            patterns = [
-                # 기본 패턴: [1.Q] ... [1.A] ...
-                r'\[(\d+)\.Q\]\s*([\s\S]*?)\n\s*\[(\d+)\.A\]\s*([\s\S]*?)(?=\n\s*\[\d+\.Q\]|$)',
-                # 변형 패턴: Q1: ... A1: ...
-                r'Q(\d+):\s*([\s\S]*?)\n\s*A(\d+):\s*([\s\S]*?)(?=\n\s*Q\d+:|$)',
-                # 질문/답변 패턴
-                r'질문(\d+):\s*([\s\S]*?)\n\s*답변(\d+):\s*([\s\S]*?)(?=\n\s*질문\d+:|$)'
-            ]
-            
-            matches = []
-            for pattern in patterns:
-                found = re.findall(pattern, content, re.MULTILINE | re.IGNORECASE)
-                if found:
-                    matches.extend(found)
-                    logger.info(f"패턴 '{pattern[:20]}...'에서 {len(found)}개 발견")
-            
-            if matches:
-                logger.info(f"파일 {file_path.name}에서 총 {len(matches)}개 Q&A 쌍 발견")
-            
-            for match in matches:
-                q_num, question, a_num, answer = match
-                if q_num == a_num:
-                    question = question.strip()
-                    answer = answer.strip()
-                    
-                    # 빈 문서 스킵
-                    if not question or not answer:
-                        continue
-                    
-                    # 카테고리 분류
-                    category = self._categorize_simple(question)
-                    
-                    doc_item = {
-                        "id": str(docs_count),
-                        "text": question,  # 질문만 벡터화
-                        "question": question,
-                        "answer": answer,
-                        "category": category,
-                        "is_special": False,
-                        "confidence": 0.8  # 기본 신뢰도
-                    }
-                    self.documents.append(doc_item)
-                    docs_count += 1
-                    
-        except Exception as e:
-            logger.warning(f"파일 처리 오류 {file_path}: {e}")
-        
-        return docs_count
-    
-    def _process_json_file(self, file_path: Path, start_count: int) -> int:
-        """JSON/JSONL 파일 처리"""
-        docs_count = start_count
-        
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                if file_path.suffix == '.jsonl':
-                    # JSONL 파일 처리
-                    line_count = 0
-                    success_count = 0
-                    for line_num, line in enumerate(f, 1):
-                        line_count += 1
-                        try:
-                            if not line.strip():
-                                continue
-                            data = json.loads(line.strip())
-                            if self._process_json_record(data, docs_count):
-                                docs_count += 1
-                                success_count += 1
-                            else:
-                                logger.info(f"라인 {line_num}: 유효한 Q&A 필드 없음 - 레코드 키: {list(data.keys())}")
-                        except json.JSONDecodeError as e:
-                            logger.warning(f"라인 {line_num} JSON 파싱 오류: {e}")
-                            logger.debug(f"문제 라인: {line[:100]}...")
-                    
-                    logger.info(f"JSONL 파일 처리 완료: 총 {line_count}줄, 성공 {success_count}개")
-                    if success_count == 0 and line_count > 0:
-                        logger.error(f"경고: {line_count}개 라인 중 하나도 처리되지 않음!")
-                else:
-                    # JSON 파일 처리
-                    data = json.load(f)
-                    if isinstance(data, list):
-                        for item in data:
-                            if self._process_json_record(item, docs_count):
-                                docs_count += 1
-                    elif isinstance(data, dict):
-                        if self._process_json_record(data, docs_count):
-                            docs_count += 1
-                            
-        except Exception as e:
-            logger.error(f"JSON 파일 처리 오류 {file_path}: {e}")
-            logger.error(f"오류 타입: {type(e).__name__}")
-            import traceback
-            logger.error(f"상세 오류:\n{traceback.format_exc()}")
-        
-        return docs_count
-    
-    def _process_json_record(self, record: dict, doc_id: int) -> bool:
-        """JSON 레코드 처리"""
-        # 다양한 필드명 지원
-        question_fields = ['question', 'q', 'query', '질문', 'input', 'instruction', 'Context', 'context']
-        answer_fields = ['answer', 'a', 'response', '답변', 'output', 'completion', 'Response']
-        
-        # 첫 번째 레코드의 필드 확인
-        if doc_id == 0 or doc_id == len(self.documents):
-            logger.info(f"첫 번째 레코드 필드: {list(record.keys())[:10]}")
-            if len(list(record.keys())) > 10:
-                logger.info(f"... 총 {len(record.keys())}개 필드")
-        
-        question = None
-        answer = None
-        
-        for field in question_fields:
-            if field in record:
-                question = str(record[field]).strip()
-                if question:  # 빈 문자열이 아닌 경우만
-                    break
-                
-        for field in answer_fields:
-            if field in record:
-                answer = str(record[field]).strip()
-                if answer:  # 빈 문자열이 아닌 경우만
-                    break
-        
-        # 디버깅: 첫 몇 개 레코드 내용 확인
-        if doc_id < 3:
-            logger.info(f"레코드 {doc_id}: question='{question[:50] if question else None}...', answer='{answer[:50] if answer else None}...'")
-        
-        if question and answer:
-            category = self._categorize_simple(question)
-            doc_item = {
-                "id": str(doc_id),
-                "text": question,
-                "question": question,
-                "answer": answer,
-                "category": category,
-                "is_special": False,
-                "confidence": 0.8
-            }
-            self.documents.append(doc_item)
-            return True
-        
-        return False
-    
-    def _process_csv_file(self, file_path: Path, start_count: int) -> int:
-        """CSV/TSV 파일 처리"""
-        docs_count = start_count
-        
-        try:
-            import pandas as pd
-            delimiter = '\t' if file_path.suffix == '.tsv' else ','
-            df = pd.read_csv(file_path, delimiter=delimiter)
-            
-            # 컬럼명 확인
-            logger.info(f"CSV 컬럼: {list(df.columns)}")
-            
-            for _, row in df.iterrows():
-                if self._process_json_record(row.to_dict(), docs_count):
-                    docs_count += 1
-                    
-        except Exception as e:
-            logger.warning(f"CSV 파일 처리 오류 {file_path}: {e}")
-        
-        return docs_count
-    
-    def _categorize_simple(self, text: str) -> str:
-        """간단한 카테고리 분류"""
-        text_lower = text.lower()
-        
-        # 주요 카테고리만 사용
-        if any(word in text_lower for word in ["전기기사", "기사시험", "기사 시험"]):
-            return "전기기사"
-        elif any(word in text_lower for word in ["산업기사", "전기산업기사"]):
-            return "전기산업기사"
-        elif any(word in text_lower for word in ["기능사", "전기기능사"]):
-            return "전기기능사"
-        elif any(word in text_lower for word in ["회로", "임피던스", "rc회로", "rlc"]):
-            return "회로이론"
-        elif any(word in text_lower for word in ["변압기", "트랜스포머"]):
-            return "변압기"
-        elif any(word in text_lower for word in ["전동기", "모터", "서보모터"]):
-            return "전동기"
-        elif any(word in text_lower for word in ["발전기", "발전소", "댐", "수력"]):
-            return "발전시설"
-        elif any(word in text_lower for word in ["송전", "배전", "전력계통"]):
-            return "전력시스템"
-        elif any(word in text_lower for word in ["안전", "접지", "감전"]):
-            return "전기안전"
-        else:
-            return "일반전기"
-    
-    def _vectorize_documents(self):
-        """문서 벡터화 및 ChromaDB 저장"""
-        if not self.documents:
-            logger.warning("벡터화할 문서가 없습니다.")
-            return
-        
-        try:
-            # 배치 처리
-            batch_size = 500  # 배치 크기 증가
-            total_batches = (len(self.documents) + batch_size - 1) // batch_size
-            
-            logger.info(f"{len(self.documents)}개 문서 벡터화 시작...")
-            
-            for i in range(0, len(self.documents), batch_size):
-                batch = self.documents[i:i + batch_size]
-                
-                # 데이터 준비
-                texts = [doc["text"] for doc in batch]
-                metadatas = [{
+            for idx, doc in enumerate(batch):
+                doc_id = i + idx
+                texts.append(doc["question"])
+                metadatas.append({
                     "question": doc["question"],
                     "answer": doc["answer"],
-                    "category": doc["category"],
-                    "is_special": doc.get("is_special", False),
-                    "confidence": doc.get("confidence", 0.8)
-                } for doc in batch]
-                ids = [doc["id"] for doc in batch]
-                
-                # ChromaDB에 추가
-                self.collection.add(
-                    documents=texts,
-                    metadatas=metadatas,
-                    ids=ids
-                )
-                
-                current_batch = i // batch_size + 1
-                logger.info(f"벡터화 진행: {current_batch}/{total_batches} 배치 완료 ({len(batch)}개 문서)")
+                    "category": self._categorize(doc["question"]),
+                })
+                ids.append(str(doc_id))
             
-            logger.info(f"벡터화 완료: {len(self.documents)}개 문서")
+            # ChromaDB에 추가
+            self.collection.add(
+                documents=texts,
+                metadatas=metadatas,
+                ids=ids
+            )
             
-            # 실제 저장된 문서 수 확인
-            saved_count = self.collection.count()
-            logger.info(f"ChromaDB에 실제 저장된 문서 수: {saved_count}")
-            
-        except Exception as e:
-            logger.error(f"벡터화 실패: {e}")
-            raise
+            current_batch = (i // self.config.batch_size) + 1
+            total_batches = (total_docs + self.config.batch_size - 1) // self.config.batch_size
+            logger.info(f"Vectorization progress: {current_batch}/{total_batches} batches")
+        
+        # 저장된 문서 수 확인
+        count = self.collection.count()
+        logger.info(f"Total documents in ChromaDB: {count}")
     
-    def search(self, query: str, k: int = 10) -> Tuple[List[Dict], float]:
-        """개선된 검색 알고리즘"""
-        start_time = time.time()
-        
-        # 벡터 검색
-        results = self._vector_search(query, k * 2)  # 더 많은 후보 검색
-        
-        # 결과 재정렬 및 필터링
-        final_results = self._rerank_results(query, results, k)
-        
-        # 최고 점수 계산
-        max_score = max([r["score"] for r in final_results]) if final_results else 0.0
-        
-        elapsed_time = time.time() - start_time
-        logger.info(f"검색 완료: {len(final_results)}개 결과, 최고점수: {max_score:.3f}, 소요시간: {elapsed_time:.2f}초")
-        
-        return final_results, max_score
-    
-    # 특수 키워드 확인 메서드 제거 - 더 이상 사용하지 않음
-    
-    def _vector_search(self, query: str, k: int) -> List[Dict]:
-        """벡터 검색 수행"""
+    def search(self, query: str, k: int) -> List[SearchResult]:
+        """벡터 검색"""
         try:
-            # 컬렉션이 비어있는지 확인
             count = self.collection.count()
-            logger.info(f"ChromaDB 문서 수: {count}")
-            
             if count == 0:
-                logger.warning("ChromaDB에 문서가 없습니다.")
+                logger.warning("No documents in ChromaDB")
                 return []
             
-            # ChromaDB 검색
+            # 검색 실행
             results = self.collection.query(
                 query_texts=[query],
-                n_results=min(k, count),  # 문서 수보다 많이 요청하지 않도록
+                n_results=min(k, count),
                 include=["metadatas", "distances", "documents"]
             )
             
             if not results["ids"] or not results["ids"][0]:
-                logger.warning("검색 결과가 없습니다.")
                 return []
             
             # 결과 변환
@@ -516,27 +163,38 @@ class ImprovedRAGSystem:
                 metadata = results["metadatas"][0][i]
                 distance = results["distances"][0][i]
                 
-                # 코사인 유사도 계산 (거리를 유사도로 변환)
+                # 코사인 유사도 계산
                 similarity = 1 - distance
                 
-                search_results.append({
-                    "question": metadata["question"],
-                    "answer": metadata["answer"],
-                    "score": similarity,
-                    "category": metadata["category"],
-                    "is_special": metadata.get("is_special", False),
-                    "base_confidence": metadata.get("confidence", 0.8)
-                })
+                search_results.append(SearchResult(
+                    question=metadata["question"],
+                    answer=metadata["answer"],
+                    score=similarity,
+                    category=metadata.get("category", "general"),
+                    metadata=metadata
+                ))
             
             return search_results
             
         except Exception as e:
-            logger.error(f"벡터 검색 실패: {e}")
-            logger.error(f"오류 세부사항: {type(e).__name__}: {str(e)}")
+            logger.error(f"Vector search failed: {e}")
             return []
     
-    def _rerank_results(self, query: str, results: List[Dict], k: int) -> List[Dict]:
-        """결과 재정렬 및 점수 조정"""
+    def _categorize(self, text: str) -> str:
+        """간단한 카테고리 분류"""
+        # 여기서는 간단한 분류만 수행
+        # 필요시 더 복잡한 분류 로직 추가 가능
+        return "general"
+
+
+class SearchRanker:
+    """검색 결과 재정렬 클래스"""
+    
+    def __init__(self, config: RAGConfig):
+        self.config = config
+        
+    def rerank(self, query: str, results: List[SearchResult], k: int) -> List[SearchResult]:
+        """검색 결과 재정렬 및 점수 조정"""
         if not results:
             return []
         
@@ -545,50 +203,161 @@ class ImprovedRAGSystem:
         
         # 점수 재계산
         for result in results:
-            # 기본 점수 (코사인 유사도)
-            base_score = result["score"]
+            # 기본 점수
+            base_score = result.score
             
             # 키워드 매칭 보너스
-            question_lower = result["question"].lower()
+            question_lower = result.question.lower()
             question_words = set(question_lower.split())
             
             # 정확한 단어 매칭
             exact_matches = len(query_words.intersection(question_words))
-            keyword_bonus = exact_matches * 0.1
+            keyword_bonus = exact_matches * self.config.keyword_match_bonus
             
             # 부분 문자열 매칭
             substring_bonus = 0
             for word in query_words:
                 if len(word) > 2 and word in question_lower:
-                    substring_bonus += 0.05
-            
-            # 카테고리 보너스
-            category_bonus = 0
-            if result["category"] == "특수키워드":
-                category_bonus = 0.2
+                    substring_bonus += self.config.substring_match_bonus
             
             # 최종 점수 계산
-            final_score = base_score + keyword_bonus + substring_bonus + category_bonus
-            final_score = min(final_score, 1.0)  # 최대 1.0
+            final_score = base_score + keyword_bonus + substring_bonus
+            final_score = min(final_score, 1.0)
             
-            # 신뢰도 조정
-            final_score *= result["base_confidence"]
-            
-            result["score"] = final_score
-            result["debug_scores"] = {
-                "base": base_score,
-                "keyword": keyword_bonus,
-                "substring": substring_bonus,
-                "category": category_bonus
-            }
+            result.score = final_score
         
         # 점수 기준 정렬
-        results.sort(key=lambda x: x["score"], reverse=True)
+        results.sort(key=lambda x: x.score, reverse=True)
         
-        # 임계값 필터링 (매우 낮은 값으로 설정)
-        threshold = 0.1
-        filtered_results = [r for r in results if r["score"] >= threshold]
+        # 임계값 필터링
+        filtered_results = [
+            r for r in results 
+            if r.score >= self.config.low_confidence_threshold
+        ]
         
         return filtered_results[:k]
+
+
+class RAGSystem:
+    """통합 RAG 시스템"""
     
-    # 샘플 데이터 메서드 제거 - 더 이상 사용하지 않음
+    def __init__(
+        self,
+        rag_config: Optional[RAGConfig] = None,
+        dataset_config: Optional[DatasetConfig] = None,
+        llm_client: Optional[LLMClient] = None
+    ):
+        """
+        RAG 시스템 초기화
+        
+        Args:
+            rag_config: RAG 설정
+            dataset_config: 데이터셋 설정
+            llm_client: LLM 클라이언트
+        """
+        self.rag_config = rag_config or RAGConfig()
+        self.dataset_config = dataset_config or DatasetConfig()
+        self.llm_client = llm_client
+        
+        # 통계
+        self.stats = {
+            "total_queries": 0,
+            "high_confidence_hits": 0,
+            "medium_confidence_hits": 0,
+            "low_confidence_hits": 0,
+            "avg_response_time": 0.0
+        }
+        
+        # 컴포넌트 초기화
+        self._initialize_components()
+        
+        # 문서 로드
+        self._load_documents()
+    
+    def _initialize_components(self):
+        """컴포넌트 초기화"""
+        # 임베딩 모델
+        logger.info(f"Loading embedding model: {self.rag_config.embedding_model_name}")
+        self.embedding_model = SentenceTransformer(
+            self.rag_config.embedding_model_name,
+            trust_remote_code=True,
+            device="cuda" if torch.cuda.is_available() else "cpu"
+        )
+        
+        # 벡터 저장소
+        self.vector_store = VectorStore(self.rag_config, self.embedding_model)
+        
+        # 검색 랭커
+        self.ranker = SearchRanker(self.rag_config)
+    
+    def _load_documents(self):
+        """문서 로드 및 인덱싱"""
+        loader = DatasetLoader(
+            paths=self.dataset_config.paths,
+            file_extensions=self.dataset_config.file_extensions,
+            max_documents=self.rag_config.max_documents
+        )
+        
+        documents = loader.load_documents()
+        
+        if documents:
+            self.vector_store.add_documents(documents)
+        else:
+            logger.warning("No documents loaded")
+    
+    def search(self, query: str, k: Optional[int] = None) -> Tuple[List[SearchResult], float]:
+        """
+        향상된 검색 수행
+        
+        Args:
+            query: 검색 쿼리
+            k: 반환할 결과 수
+            
+        Returns:
+            (검색 결과 리스트, 최고 점수)
+        """
+        start_time = time.time()
+        k = k or self.rag_config.rerank_k
+        
+        # 벡터 검색
+        results = self.vector_store.search(query, self.rag_config.search_k)
+        
+        # 재정렬
+        final_results = self.ranker.rerank(query, results, k)
+        
+        # 최고 점수 계산
+        max_score = max([r.score for r in final_results]) if final_results else 0.0
+        
+        # 통계 업데이트
+        self._update_stats(max_score, time.time() - start_time)
+        
+        logger.info(
+            f"Search completed: {len(final_results)} results, "
+            f"max score: {max_score:.3f}, time: {time.time() - start_time:.2f}s"
+        )
+        
+        return final_results, max_score
+    
+    def _update_stats(self, max_score: float, response_time: float):
+        """통계 업데이트"""
+        self.stats["total_queries"] += 1
+        
+        if max_score >= self.rag_config.high_confidence_threshold:
+            self.stats["high_confidence_hits"] += 1
+        elif max_score >= self.rag_config.medium_confidence_threshold:
+            self.stats["medium_confidence_hits"] += 1
+        else:
+            self.stats["low_confidence_hits"] += 1
+        
+        # 평균 응답 시간 계산
+        n = self.stats["total_queries"]
+        prev_avg = self.stats["avg_response_time"]
+        self.stats["avg_response_time"] = (prev_avg * (n - 1) + response_time) / n
+    
+    def get_stats(self) -> Dict:
+        """통계 반환"""
+        return self.stats.copy()
+
+
+# 하위 호환성을 위한 별칭
+ImprovedRAGSystem = RAGSystem

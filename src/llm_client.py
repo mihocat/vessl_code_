@@ -2,12 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 LLM Client Module for RAG System
-LLM 클라이언트 모듈
+LLM 클라이언트 모듈 - 범용 AI 시스템
 """
 
 import requests
 import logging
-from typing import Optional
+import time
+from typing import Optional, Dict, Any
+from config import LLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -15,80 +17,143 @@ logger = logging.getLogger(__name__)
 class LLMClient:
     """LLM 서버 클라이언트"""
     
-    def __init__(self, base_url: str = "http://localhost:8000", model_name: str = "test_model"):
+    def __init__(self, config: Optional[LLMConfig] = None):
         """
+        LLM 클라이언트 초기화
+        
         Args:
-            base_url: vLLM 서버 주소
-            model_name: 모델 이름
+            config: LLM 설정 객체
         """
-        self.base_url = base_url
-        self.model_name = model_name
-        self.health_check_url = f"{base_url}/health"
-        self.completions_url = f"{base_url}/v1/completions"
+        self.config = config or LLMConfig()
+        self.session = requests.Session()
+        self._setup_urls()
+        
+    def _setup_urls(self):
+        """API 엔드포인트 설정"""
+        self.health_check_url = f"{self.config.base_url}/health"
+        self.completions_url = f"{self.config.base_url}/v1/completions"
         
     def check_health(self) -> bool:
         """서버 상태 확인"""
         try:
-            response = requests.get(self.health_check_url, timeout=2)
+            response = self.session.get(
+                self.health_check_url, 
+                timeout=self.config.health_check_timeout
+            )
             return response.status_code == 200
-        except:
+        except Exception as e:
+            logger.debug(f"Health check failed: {e}")
             return False
     
-    def query(self, prompt: str, context: str = "", max_tokens: int = 800, temperature: float = 0.1) -> str:
-        """LLM 질의 - 전기공학 전문 최적화"""
+    def query(
+        self, 
+        prompt: str, 
+        context: str = "", 
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None
+    ) -> str:
+        """
+        LLM 질의 - 범용 AI 시스템
+        
+        Args:
+            prompt: 사용자 질문
+            context: 참고 컨텍스트
+            max_tokens: 최대 토큰 수
+            temperature: 생성 온도
+            
+        Returns:
+            LLM 응답 텍스트
+        """
         try:
-            # 전문 시스템 역할 정의 (더 구체적으로)
-            system_role = """당신은 한국의 전기공학 전문가입니다. 전기기사, 전기산업기사, 전기기능사 시험 출제위원이며 현장 경력 20년의 베테랑입니다.
-
-답변 원칙:
-1. 한국 전기설비기술기준(KEC)과 전기사업법을 준수
-2. 실무 경험을 바탕으로 구체적이고 실용적인 답변
-3. 필요시 공식, 회로도, 계산 과정 포함
-4. 전문 용어는 한국어와 영어 병기
-5. 확실하지 않은 내용은 "확인이 필요합니다"라고 명시"""
+            # 파라미터 설정
+            max_tokens = max_tokens or self.config.max_tokens
+            temperature = temperature or self.config.temperature
             
-            # 고급 프롬프트 구성
-            if context:
-                # 컨텍스트 전처리 및 구조화
-                structured_context = self._structure_context(context)
-                
-                # 컨텍스트가 있을 때는 더 정확한 답변 유도
-                full_prompt = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>{system_role}<|eot_id|>"
-                full_prompt += f"<|start_header_id|>user<|end_header_id|>"
-                full_prompt += f"[참고 자료]\n{structured_context}\n\n"
-                full_prompt += f"[질문] {prompt}\n\n"
-                full_prompt += f"위 참고자료를 반드시 활용하여 답변하세요. 참고자료와 다른 내용은 답변하지 마세요."
-                full_prompt += f"<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
-            else:
-                # 컨텍스트가 없을 때는 일반적인 전문 지식으로 답변
-                full_prompt = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>{system_role}<|eot_id|>"
-                full_prompt += f"<|start_header_id|>user<|end_header_id|>{prompt}<|eot_id|>"
-                full_prompt += f"<|start_header_id|>assistant<|end_header_id|>"
+            # 프롬프트 구성
+            full_prompt = self._build_prompt(prompt, context)
             
-            payload = {
-                "model": self.model_name,
-                "prompt": full_prompt,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "top_p": 0.85,
-                "presence_penalty": 0.05,
-                "frequency_penalty": 0.05,
-                "stop": ["<|eot_id|>"]
-            }
+            # API 요청 페이로드
+            payload = self._build_payload(full_prompt, max_tokens, temperature)
             
-            response = requests.post(self.completions_url, json=payload, timeout=45)
+            # API 호출
+            response = self._make_request(payload)
             
             if response.status_code == 200:
-                result = response.json()["choices"][0]["text"].strip()
-                # 답변 후처리 및 검증
+                result = self._extract_response(response)
                 return self._post_process_response(result)
             else:
-                logger.error(f"LLM API 오류: {response.status_code} - {response.text}")
-                return "서버 연결에 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+                logger.error(f"LLM API error: {response.status_code} - {response.text}")
+                return self._get_error_message()
                 
+        except requests.exceptions.Timeout:
+            logger.error("LLM request timeout")
+            return "요청 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."
         except Exception as e:
-            logger.error(f"LLM 질의 실패: {str(e)}")
-            return "시스템 오류가 발생했습니다. 관리자에게 문의해 주세요."
+            logger.error(f"LLM query failed: {str(e)}")
+            return self._get_error_message()
+    
+    def _build_prompt(self, prompt: str, context: str) -> str:
+        """프롬프트 구성"""
+        system_role = """당신은 도움이 되고 정확한 정보를 제공하는 AI 어시스턴트입니다.
+        
+답변 원칙:
+1. 정확하고 신뢰할 수 있는 정보 제공
+2. 모르는 내용은 솔직하게 인정
+3. 간결하고 명확한 설명
+4. 사용자의 질문 의도 파악 및 맞춤 답변"""
+        
+        if context:
+            # 컨텍스트가 있는 경우
+            structured_context = self._structure_context(context)
+            full_prompt = (
+                f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>"
+                f"{system_role}<|eot_id|>"
+                f"<|start_header_id|>user<|end_header_id|>"
+                f"[참고 자료]\n{structured_context}\n\n"
+                f"[질문] {prompt}\n\n"
+                f"위 참고자료를 활용하여 답변해주세요."
+                f"<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
+            )
+        else:
+            # 컨텍스트가 없는 경우
+            full_prompt = (
+                f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>"
+                f"{system_role}<|eot_id|>"
+                f"<|start_header_id|>user<|end_header_id|>{prompt}<|eot_id|>"
+                f"<|start_header_id|>assistant<|end_header_id|>"
+            )
+            
+        return full_prompt
+    
+    def _build_payload(
+        self, 
+        prompt: str, 
+        max_tokens: int, 
+        temperature: float
+    ) -> Dict[str, Any]:
+        """API 요청 페이로드 구성"""
+        return {
+            "model": self.config.model_name,
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": self.config.top_p,
+            "presence_penalty": self.config.presence_penalty,
+            "frequency_penalty": self.config.frequency_penalty,
+            "stop": ["<|eot_id|>"]
+        }
+    
+    def _make_request(self, payload: Dict[str, Any]) -> requests.Response:
+        """API 요청 실행"""
+        return self.session.post(
+            self.completions_url,
+            json=payload,
+            timeout=self.config.timeout
+        )
+    
+    def _extract_response(self, response: requests.Response) -> str:
+        """응답에서 텍스트 추출"""
+        return response.json()["choices"][0]["text"].strip()
     
     def _structure_context(self, context: str) -> str:
         """컨텍스트 구조화 및 최적화"""
@@ -103,45 +168,70 @@ class LLMClient:
                 if part_clean and part_clean not in seen and len(part_clean) > 20:
                     unique_parts.append(part_clean)
                     seen.add(part_clean)
-                    if len(unique_parts) >= 3:  # 최대 3개 컨텍스트로 제한
+                    if len(unique_parts) >= 3:  # 최대 3개 컨텍스트
                         break
             
             return "\n---\n".join(unique_parts)
-        except:
+        except Exception:
             return context
     
     def _post_process_response(self, response: str) -> str:
         """답변 후처리 및 품질 개선"""
         try:
-            # 불필요한 접두사/접미사 제거
-            response = response.replace("답변:", "").replace("Answer:", "")
-            response = response.strip()
+            # 불필요한 접두사 제거
+            prefixes_to_remove = ["답변:", "Answer:", "응답:"]
+            for prefix in prefixes_to_remove:
+                if response.startswith(prefix):
+                    response = response[len(prefix):].strip()
             
-            # 너무 짧은 답변 감지
+            # 너무 짧은 답변 처리
             if len(response) < 10:
                 return "충분한 정보를 찾을 수 없습니다. 더 구체적인 질문을 해주세요."
             
             # 문장 완성도 확인
-            if not response.endswith(('.', '다', '요', '음', '니다', '습니다')):
+            endings = ('.', '다', '요', '음', '니다', '습니다', '?', '!')
+            if not response.endswith(endings):
                 response += "."
             
             return response
-        except:
+        except Exception:
             return response
     
+    def _get_error_message(self) -> str:
+        """에러 메시지 반환"""
+        return "죄송합니다. 응답 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+    
     def wait_for_server(self, max_attempts: int = 60, delay: int = 3) -> bool:
-        """서버 준비 대기"""
-        import time
+        """
+        서버 준비 대기
         
-        logger.info("vLLM 서버 연결 대기 중...")
-        for i in range(max_attempts):
+        Args:
+            max_attempts: 최대 시도 횟수
+            delay: 시도 간격 (초)
+            
+        Returns:
+            서버 준비 여부
+        """
+        logger.info("LLM 서버 연결 대기 중...")
+        
+        for attempt in range(max_attempts):
             if self.check_health():
-                logger.info("vLLM 서버 정상 연결됨")
+                logger.info("LLM 서버 정상 연결됨")
                 return True
             
             time.sleep(delay)
-            if i % 5 == 4:
-                logger.info(f"vLLM 서버 대기 중... ({i+1}/{max_attempts})")
+            
+            # 진행 상황 로그
+            if (attempt + 1) % 5 == 0:
+                logger.info(f"LLM 서버 대기 중... ({attempt + 1}/{max_attempts})")
         
-        logger.error("vLLM 서버 연결 실패")
+        logger.error("LLM 서버 연결 실패")
         return False
+    
+    def __enter__(self):
+        """컨텍스트 매니저 진입"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """컨텍스트 매니저 종료"""
+        self.session.close()
