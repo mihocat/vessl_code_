@@ -41,13 +41,8 @@ class Florence2ImageAnalyzer:
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_id, 
                 trust_remote_code=True,
-                torch_dtype=dtype,
-                device_map="auto" if self.device == "cuda" else None
-            )
-            
-            # 모델이 이미 device에 있으면 to() 호출 생략
-            if self.device == "cpu":
-                self.model = self.model.to(self.device)
+                torch_dtype=dtype
+            ).to(self.device)
             self.processor = AutoProcessor.from_pretrained(
                 self.model_id, 
                 trust_remote_code=True
