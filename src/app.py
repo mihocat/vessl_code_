@@ -63,7 +63,7 @@ class ImprovedRAGService:
         # 점수 기반 응답 전략
         response = f"[질문] {question}\n\n"
         
-        if max_score >= 0.9:  # 매우 높은 신뢰도만 직접 답변
+        if max_score >= 0.8:  # 매우 높은 신뢰도만 직접 답변
             # 높은 신뢰도 - 직접 답변
             best_result = results[0]
             response += f"{best_result['answer']}\n"
