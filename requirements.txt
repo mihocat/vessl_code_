@@ -14,6 +14,7 @@ bitsandbytes>=0.44.0
 
 # Web Search
 ddgs>=7.0.0
+beautifulsoup4>=4.12.0
 
 # Web Interface
 gradio>=4.0.0

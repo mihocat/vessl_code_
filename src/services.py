@@ -7,6 +7,9 @@ RAG 시스템 서비스 클래스
 
 import logging
 from typing import List, Dict, Optional
+import requests
+from urllib.parse import quote
+from bs4 import BeautifulSoup
 
 try:
     from duckduckgo_search import DDGS
@@ -38,7 +41,7 @@ class WebSearchService:
         
     def search(self, query: str) -> List[Dict[str, str]]:
         """
-        웹 검색 수행
+        웹 검색 수행 (네이버, 구글 우선순위)
         
         Args:
             query: 검색 쿼리
@@ -46,10 +49,108 @@ class WebSearchService:
         Returns:
             검색 결과 리스트
         """
-        if DDGS is None:
-            logger.warning("Web search not available - DDGS not installed")
-            return []
+        results = []
+        
+        # 1. 네이버 검색 시도
+        naver_results = self._search_naver(query)
+        if naver_results:
+            results.extend(naver_results)
+            if len(results) >= self.config.max_results:
+                return results[:self.config.max_results]
+        
+        # 2. 구글 검색 시도 (네이버 결과가 부족한 경우)
+        needed = self.config.max_results - len(results)
+        if needed > 0:
+            google_results = self._search_google(query)
+            if google_results:
+                results.extend(google_results[:needed])
+        
+        # 3. DuckDuckGo 검색 시도 (결과가 여전히 부족한 경우)
+        needed = self.config.max_results - len(results)
+        if needed > 0 and DDGS is not None:
+            ddg_results = self._search_duckduckgo(query)
+            if ddg_results:
+                results.extend(ddg_results[:needed])
+        
+        logger.debug(f"Web search for '{query}' returned {len(results)} results")
+        return results
+    
+    def _search_naver(self, query: str) -> List[Dict[str, str]]:
+        """네이버 검색"""
+        try:
+            # 네이버 검색 URL
+            url = f"https://search.naver.com/search.naver?query={quote(query)}"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
             
+            response = requests.get(url, headers=headers, timeout=5)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            results = []
+            
+            # 검색 결과 추출 (네이버 DOM 구조에 맞게)
+            search_items = soup.select('.lst_total .total_wrap')[:self.config.max_results]
+            
+            for item in search_items:
+                title_elem = item.select_one('.total_tit')
+                desc_elem = item.select_one('.dsc_txt')
+                link_elem = item.select_one('a')
+                
+                if title_elem and desc_elem:
+                    results.append({
+                        "title": title_elem.get_text(strip=True),
+                        "snippet": desc_elem.get_text(strip=True)[:200],
+                        "url": link_elem.get('href', '') if link_elem else ""
+                    })
+            
+            logger.info(f"Naver search returned {len(results)} results")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Naver search failed: {e}")
+            return []
+    
+    def _search_google(self, query: str) -> List[Dict[str, str]]:
+        """구글 검색 (한국어 우선)"""
+        try:
+            # 구글 검색 URL (한국어 검색 우선)
+            url = f"https://www.google.com/search?q={quote(query)}&hl=ko"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+            
+            response = requests.get(url, headers=headers, timeout=5)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            results = []
+            
+            # 검색 결과 추출
+            search_items = soup.select('div.g')[:self.config.max_results]
+            
+            for item in search_items:
+                title_elem = item.select_one('h3')
+                desc_elem = item.select_one('.VwiC3b')
+                link_elem = item.select_one('a')
+                
+                if title_elem and desc_elem:
+                    results.append({
+                        "title": title_elem.get_text(strip=True),
+                        "snippet": desc_elem.get_text(strip=True)[:200],
+                        "url": link_elem.get('href', '') if link_elem else ""
+                    })
+            
+            logger.info(f"Google search returned {len(results)} results")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Google search failed: {e}")
+            return []
+    
+    def _search_duckduckgo(self, query: str) -> List[Dict[str, str]]:
+        """DuckDuckGo 검색 (폴백)"""
         try:
             results = []
             
@@ -66,11 +167,11 @@ class WebSearchService:
                         "url": result.get("href", "")
                     })
             
-            logger.debug(f"Web search for '{query}' returned {len(results)} results")
+            logger.info(f"DuckDuckGo search returned {len(results)} results")
             return results
             
         except Exception as e:
-            logger.error(f"Web search failed: {e}")
+            logger.error(f"DuckDuckGo search failed: {e}")
             return []
 
 
