@@ -8,7 +8,8 @@ RAG 시스템 Gradio UI 애플리케이션
 import sys
 import time
 import logging
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union
+from PIL import Image
 
 import gradio as gr
 
@@ -16,6 +17,7 @@ from config import Config
 from llm_client import LLMClient
 from rag_system import RAGSystem, SearchResult
 from services import WebSearchService, ResponseGenerator
+from image_analyzer import Florence2ImageAnalyzer, MultimodalRAGService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,16 +46,35 @@ class ChatService:
         self.web_search = WebSearchService(config.web_search)
         self.response_generator = ResponseGenerator(config.web_search)
         
+        # 이미지 분석기 초기화 (선택적)
+        self.image_analyzer = None
+        self.multimodal_service = None
+        try:
+            self.image_analyzer = Florence2ImageAnalyzer()
+            self.multimodal_service = MultimodalRAGService(
+                self.image_analyzer,
+                self.rag_system.embedding_model
+            )
+            logger.info("Florence-2 image analyzer initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize image analyzer: {e}")
+        
         # 대화 이력
         self.conversation_history = []
         
-    def process_query(self, question: str, history: List[Tuple[str, str]]) -> str:
+    def process_query(
+        self, 
+        question: str, 
+        history: List[Tuple[str, str]],
+        image: Optional[Image.Image] = None
+    ) -> str:
         """
         사용자 질의 처리
         
         Args:
             question: 사용자 질문
             history: 대화 이력
+            image: 선택적 이미지 입력
             
         Returns:
             생성된 응답
@@ -65,11 +86,24 @@ class ChatService:
             return "질문을 입력해주세요."
         
         try:
+            # 이미지 분석 (이미지가 있는 경우)
+            image_context = ""
+            if image and self.multimodal_service:
+                try:
+                    multimodal_result = self.multimodal_service.process_multimodal_query(
+                        question, image
+                    )
+                    # 이미지 분석 결과를 질문에 포함
+                    question = multimodal_result["combined_query"]
+                    image_context = multimodal_result.get("image_analysis", {})
+                except Exception as e:
+                    logger.error(f"Image analysis failed: {e}")
+            
             # RAG 검색 수행
             results, max_score = self.rag_system.search(question)
             
             # 응답 생성
-            response = self._generate_response(question, results, max_score)
+            response = self._generate_response(question, results, max_score, image_context)
             
             # 응답 시간 추가
             elapsed_time = time.time() - start_time
@@ -85,7 +119,13 @@ class ChatService:
             return "죄송합니다. 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
     
     
-    def _generate_response(self, question: str, results: List[SearchResult], max_score: float) -> str:
+    def _generate_response(
+        self, 
+        question: str, 
+        results: List[SearchResult], 
+        max_score: float,
+        image_context: Optional[dict] = None
+    ) -> str:
         """
         검색 결과를 기반으로 응답 생성
         
@@ -93,6 +133,7 @@ class ChatService:
             question: 사용자 질문
             results: RAG 검색 결과
             max_score: 최고 유사도 점수
+            image_context: 이미지 분석 결과
             
         Returns:
             생성된 응답
@@ -232,12 +273,17 @@ def create_gradio_app(config: Optional[Config] = None) -> gr.Blocks:
                 
                 # 입력 영역
                 with gr.Row():
-                    msg = gr.Textbox(
-                        label="질문을 입력하세요",
-                        placeholder="궁금한 것을 물어보세요...",
-                        lines=2,
-                        scale=4
-                    )
+                    with gr.Column(scale=4):
+                        msg = gr.Textbox(
+                            label="질문을 입력하세요",
+                            placeholder="궁금한 것을 물어보세요...",
+                            lines=2
+                        )
+                        image_input = gr.Image(
+                            label="이미지 업로드 (선택사항)",
+                            type="pil",
+                            height=200
+                        )
                     with gr.Column(scale=1):
                         submit = gr.Button("전송", variant="primary")
                         clear = gr.Button("초기화")
@@ -253,24 +299,30 @@ def create_gradio_app(config: Optional[Config] = None) -> gr.Blocks:
                 )
         
         # 이벤트 핸들러
-        def respond(message: str, chat_history: List[Tuple[str, str]]):
+        def respond(message: str, image, chat_history: List[Tuple[str, str]]):
             """메시지 응답 처리"""
             if not message.strip():
-                return "", chat_history
+                return "", None, chat_history
             
-            response = chat_service.process_query(message, chat_history)
-            chat_history.append((message, response))
-            return "", chat_history
+            response = chat_service.process_query(message, chat_history, image)
+            
+            # 이미지가 있는 경우 대화에 표시
+            if image:
+                chat_history.append((f"{message}\n[이미지 첨부됨]", response))
+            else:
+                chat_history.append((message, response))
+            
+            return "", None, chat_history
         
         def clear_chat():
             """대화 초기화"""
             chat_service.conversation_history.clear()
-            return None, ""
+            return None, "", None
         
         # 이벤트 바인딩
-        submit.click(respond, [msg, chatbot], [msg, chatbot])
-        msg.submit(respond, [msg, chatbot], [msg, chatbot])
-        clear.click(clear_chat, None, [chatbot, msg])
+        submit.click(respond, [msg, image_input, chatbot], [msg, image_input, chatbot])
+        msg.submit(respond, [msg, image_input, chatbot], [msg, image_input, chatbot])
+        clear.click(clear_chat, None, [chatbot, msg, image_input])
         
         # 통계 표시
         with gr.Accordion("📊 서비스 통계", open=False):
