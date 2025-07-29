@@ -25,6 +25,7 @@ class LLMClient:
             config: LLM 설정 객체
         """
         self.config = config or LLMConfig()
+        logger.info(f"LLMClient initialized with model: {self.config.model_name}")
         self.session = requests.Session()
         self._setup_urls()
         
@@ -97,30 +98,34 @@ class LLMClient:
         system_role = """당신은 도움이 되고 정확한 정보를 제공하는 AI 어시스턴트입니다.
         
 답변 원칙:
-1. 정확하고 신뢰할 수 있는 정보 제공
-2. 모르는 내용은 솔직하게 인정
-3. 간결하고 명확한 설명
-4. 사용자의 질문 의도 파악 및 맞춤 답변"""
-        
-        if context:
-            # 컨텍스트가 있는 경우
-            structured_context = self._structure_context(context)
-            full_prompt = (
-                f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>"
-                f"{system_role}<|eot_id|>"
-                f"<|start_header_id|>user<|end_header_id|>"
-                f"[참고 자료]\n{structured_context}\n\n"
-                f"[질문] {prompt}\n\n"
-                f"위 참고자료를 활용하여 답변해주세요."
-                f"<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
-            )
+1. 제공된 참고자료를 기반으로 정확하게 답변하세요
+2. 참고자료가 충분하지 않으면 웹 검색 결과를 활용하세요
+3. 답변은 명확하고 구체적으로 작성하세요
+4. 모르는 내용은 추측하지 말고 솔직하게 모른다고 답변하세요
+5. 한국어로 자연스럽게 답변하세요"""
+
+        # 컨텍스트가 있는 경우와 없는 경우 구분
+        if context and context.strip():
+            full_prompt = f"""{system_role}
+
+참고자료:
+{context}
+
+질문: {prompt}
+
+답변:"""
         else:
-            # 컨텍스트가 없는 경우
-            full_prompt = (
-                f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>"
-                f"{system_role}<|eot_id|>"
-                f"<|start_header_id|>user<|end_header_id|>{prompt}<|eot_id|>"
-                f"<|start_header_id|>assistant<|end_header_id|>"
+            full_prompt = f"""{system_role}
+
+질문: {prompt}
+
+답변:"""
+            
+        # 한국어 모델 특화 프롬프트 조정
+        if "korean" in self.config.model_name.lower() or "ko-" in self.config.model_name.lower():
+            full_prompt = full_prompt.replace(
+                "당신은 도움이 되고 정확한 정보를 제공하는 AI 어시스턴트입니다.",
+                "당신은 친절하고 전문적인 한국어 AI 어시스턴트입니다."
             )
             
         return full_prompt
@@ -132,7 +137,7 @@ class LLMClient:
         temperature: float
     ) -> Dict[str, Any]:
         """API 요청 페이로드 구성"""
-        return {
+        payload = {
             "model": self.config.model_name,
             "prompt": prompt,
             "max_tokens": max_tokens,
@@ -142,6 +147,8 @@ class LLMClient:
             "frequency_penalty": self.config.frequency_penalty,
             "stop": ["<|eot_id|>"]
         }
+        logger.debug(f"Building payload with model: {self.config.model_name}")
+        return payload
     
     def _make_request(self, payload: Dict[str, Any]) -> requests.Response:
         """API 요청 실행"""
@@ -153,85 +160,73 @@ class LLMClient:
     
     def _extract_response(self, response: requests.Response) -> str:
         """응답에서 텍스트 추출"""
-        return response.json()["choices"][0]["text"].strip()
-    
-    def _structure_context(self, context: str) -> str:
-        """컨텍스트 구조화 및 최적화"""
-        try:
-            # 중복 제거 및 우선순위 정렬
-            context_parts = context.split(" | ")
-            unique_parts = []
-            seen = set()
+        result = response.json()
+        
+        # 다양한 응답 형식 처리
+        if "choices" in result:
+            if result["choices"]:
+                return result["choices"][0].get("text", "").strip()
+        elif "text" in result:
+            return result["text"].strip()
+        elif "generated_text" in result:
+            return result["generated_text"].strip()
             
-            for part in context_parts:
-                part_clean = part.strip()
-                if part_clean and part_clean not in seen and len(part_clean) > 20:
-                    unique_parts.append(part_clean)
-                    seen.add(part_clean)
-                    if len(unique_parts) >= 3:  # 최대 3개 컨텍스트
-                        break
-            
-            return "\n---\n".join(unique_parts)
-        except Exception:
-            return context
+        return ""
     
     def _post_process_response(self, response: str) -> str:
-        """답변 후처리 및 품질 개선"""
-        try:
-            # 불필요한 접두사 제거
-            prefixes_to_remove = ["답변:", "Answer:", "응답:"]
-            for prefix in prefixes_to_remove:
-                if response.startswith(prefix):
-                    response = response[len(prefix):].strip()
+        """응답 후처리"""
+        if not response:
+            return self._get_error_message()
             
-            # 너무 짧은 답변 처리
-            if len(response) < 10:
-                return "충분한 정보를 찾을 수 없습니다. 더 구체적인 질문을 해주세요."
+        # 불필요한 공백 제거
+        response = response.strip()
+        
+        # 응답이 너무 짧은 경우
+        if len(response) < 10:
+            return "죄송합니다. 충분한 답변을 생성하지 못했습니다. 다시 시도해주세요."
             
-            # 문장 완성도 확인
-            endings = ('.', '다', '요', '음', '니다', '습니다', '?', '!')
-            if not response.endswith(endings):
-                response += "."
-            
-            return response
-        except Exception:
-            return response
+        return response
     
     def _get_error_message(self) -> str:
         """에러 메시지 반환"""
         return "죄송합니다. 응답 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
     
-    def wait_for_server(self, max_attempts: int = 100, delay: int = 3) -> bool:
+    def wait_for_server(
+        self, 
+        max_retries: int = 60, 
+        retry_interval: int = 3
+    ) -> bool:
         """
-        서버 준비 대기
+        서버가 준비될 때까지 대기
         
         Args:
-            max_attempts: 최대 시도 횟수
-            delay: 시도 간격 (초)
+            max_retries: 최대 재시도 횟수
+            retry_interval: 재시도 간격 (초)
             
         Returns:
             서버 준비 여부
         """
-        logger.info("LLM 서버 연결 대기 중...")
+        logger.info("Waiting for LLM server...")
         
-        for attempt in range(max_attempts):
+        for attempt in range(max_retries):
             if self.check_health():
-                logger.info("LLM 서버 정상 연결됨")
+                logger.info("LLM server is ready")
                 return True
-            
-            time.sleep(delay)
-            
-            # 진행 상황 로그
-            if (attempt + 1) % 5 == 0:
-                logger.info(f"LLM 서버 대기 중... ({attempt + 1}/{max_attempts})")
-        
-        logger.error("LLM 서버 연결 실패")
+                
+            if attempt < max_retries - 1:
+                time.sleep(retry_interval)
+                
+        logger.error("LLM server failed to start")
         return False
     
+    def close(self):
+        """세션 종료"""
+        self.session.close()
+    
     def __enter__(self):
-        """컨텍스트 매니저 진입"""
+        """컨텍스트 관리자 진입"""
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """컨텍스트 매니저 종료"""
-        self.session.close()
+        """컨텍스트 관리자 종료"""
+        self.close()
