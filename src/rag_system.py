@@ -49,17 +49,8 @@ class ImprovedRAGSystem:
             "total_queries": 0
         }
         
-        # 특수 키워드 사전
-        self.special_keywords = {
-            "다산에듀": {
-                "answer": "다산에듀는 전기 분야 자격증 교육 전문 기관입니다. 전기기사, 전기산업기사, 전기기능사 등 다양한 전기 자격증 과정을 제공하고 있습니다.",
-                "confidence": 1.0
-            },
-            "다산패스": {
-                "answer": "다산패스는 다산에듀에서 제공하는 온라인 학습 플랫폼입니다. 필기와 실기 과정을 모바일 앱으로 학습할 수 있으며, 구독 방식으로 운영됩니다.",
-                "confidence": 1.0
-            }
-        }
+        # 특수 키워드 사전 제거 - 범용 AI로 변경
+        self.special_keywords = {}
         
         # ChromaDB 초기화
         self._init_chromadb()
@@ -127,35 +118,14 @@ class ImprovedRAGSystem:
     
     def _load_all_documents(self):
         """모든 문서 로드 및 벡터화"""
-        # 1. 특수 키워드 먼저 로드
-        self._load_special_keywords()
-        
-        # 2. 데이터셋 문서 로드
+        # 데이터셋 문서만 로드 (특수 키워드 제거)
         self._load_dataset_documents()
         
-        # 3. 벡터화
+        # 벡터화
         if self.documents:
             self._vectorize_documents()
     
-    def _load_special_keywords(self):
-        """특수 키워드를 우선 문서로 추가"""
-        # 특수 키워드 비활성화 - 데이터셋에서 로드
-        if self.special_keywords:
-            doc_id = 0
-            for keyword, info in self.special_keywords.items():
-                doc_item = {
-                    "id": f"special_{doc_id}",
-                    "text": keyword,  # 키워드만 벡터화
-                    "question": keyword,
-                    "answer": info["answer"],
-                    "category": "특수키워드",
-                    "is_special": True,
-                    "confidence": info["confidence"]
-                }
-                self.documents.append(doc_item)
-                doc_id += 1
-            
-            logger.info(f"특수 키워드 {len(self.special_keywords)}개 로드 완료")
+    # 특수 키워드 메서드 제거 - 더 이상 사용하지 않음
     
     def _load_dataset_documents(self):
         """데이터셋에서 문서 로드"""
@@ -207,7 +177,7 @@ class ImprovedRAGSystem:
             for item in Path("/").iterdir():
                 if item.is_dir() and not item.name.startswith('.'):
                     logger.info(f"  /{item.name}")
-            self._load_sample_data()
+            # 샘플 데이터 로드 제거 - 데이터셋만 사용
             return
         
         # 파일 처리 - 다양한 확장자 지원
@@ -502,18 +472,13 @@ class ImprovedRAGSystem:
         """개선된 검색 알고리즘"""
         start_time = time.time()
         
-        # 1. 특수 키워드 확인
-        special_result = self._check_special_keywords(query)
-        if special_result:
-            return [special_result], 1.0
-        
-        # 2. 벡터 검색
+        # 벡터 검색
         results = self._vector_search(query, k * 2)  # 더 많은 후보 검색
         
-        # 3. 결과 재정렬 및 필터링
+        # 결과 재정렬 및 필터링
         final_results = self._rerank_results(query, results, k)
         
-        # 4. 최고 점수 계산
+        # 최고 점수 계산
         max_score = max([r["score"] for r in final_results]) if final_results else 0.0
         
         elapsed_time = time.time() - start_time
@@ -521,20 +486,7 @@ class ImprovedRAGSystem:
         
         return final_results, max_score
     
-    def _check_special_keywords(self, query: str) -> Optional[Dict]:
-        """특수 키워드 확인"""
-        query_lower = query.lower()
-        
-        for keyword, info in self.special_keywords.items():
-            if keyword.lower() in query_lower:
-                return {
-                    "question": keyword,
-                    "answer": info["answer"],
-                    "score": info["confidence"],
-                    "category": "특수키워드"
-                }
-        
-        return None
+    # 특수 키워드 확인 메서드 제거 - 더 이상 사용하지 않음
     
     def _vector_search(self, query: str, k: int) -> List[Dict]:
         """벡터 검색 수행"""
@@ -639,41 +591,4 @@ class ImprovedRAGSystem:
         
         return filtered_results[:k]
     
-    def _load_sample_data(self):
-        """샘플 데이터 로드"""
-        sample_qa_pairs = [
-            {
-                "question": "다산에듀는 무엇인가요?",
-                "answer": "미호가 다니는 회사입니다!"
-            },
-            {
-                "question": "R-C회로 합성 임피던스에서 -j를 붙이는 이유는?",
-                "answer": "커패시터의 용량성 리액턴스 Xc는 전류가 전압보다 90도 앞서기 때문에, 이를 복소평면에서 표현하면 -jXc가 됩니다."
-            },
-            {
-                "question": "과도현상과 인덕턴스 L의 관계는?",
-                "answer": "인덕터는 전류가 갑자기 바뀌는 걸 싫어합니다. 스위치를 켜면, 인덕터 전류는 0에서부터 서서히 올라갑니다. 이 '서서히 올라가는 과정'이 바로 과도현상입니다."
-            },
-            {
-                "question": "서보모터의 동작 원리는?",
-                "answer": "서보모터는 수력발전소에서 조속기의 지령을 받아 안내 날개나 니들 밸브를 조절하는 유압 구동 장치입니다. 조속기가 회전속도 변화를 감지하면, 서보모터가 유압을 이용해 수차의 유량을 조절하여 속도를 일정하게 유지합니다."
-            },
-            {
-                "question": "댐 부속설비 중 수로와 여수로의 차이는?",
-                "answer": "수로는 발전용 물을 수차로 공급하는 통로이고, 여수로는 홍수 시 댐의 수위 조절을 위해 여분의 물을 방류하는 통로입니다. 수로는 발전용, 여수로는 안전용으로 구분됩니다."
-            }
-        ]
-        
-        for i, qa in enumerate(sample_qa_pairs):
-            doc_item = {
-                "id": f"sample_{i}",
-                "text": qa["question"],
-                "question": qa["question"],
-                "answer": qa["answer"],
-                "category": "샘플데이터",
-                "is_special": False,
-                "confidence": 0.9
-            }
-            self.documents.append(doc_item)
-        
-        logger.info(f"샘플 데이터 {len(sample_qa_pairs)}개 로드")
+    # 샘플 데이터 메서드 제거 - 더 이상 사용하지 않음

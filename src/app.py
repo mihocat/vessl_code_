@@ -52,34 +52,10 @@ class ImprovedRAGService:
         
         return response
     
-    def _is_electrical_query(self, query: str) -> bool:
-        """전기공학 관련 질문인지 확인"""
-        query_lower = query.lower()
-        
-        # 전기공학 키워드
-        electrical_keywords = [
-            # 기본 용어
-            "전기", "전압", "전류", "저항", "회로", "임피던스", "전력", "에너지",
-            # 자격증
-            "전기기사", "산업기사", "기능사", "전기공사",
-            # 기기
-            "변압기", "발전기", "전동기", "모터", "차단기", "계전기",
-            # 이론
-            "옴의법칙", "키르히호프", "페이저", "역률", "무효전력",
-            # 시설
-            "배전", "송전", "수전", "변전소", "전기설비",
-            # 안전
-            "접지", "누전", "감전", "절연",
-            # 특수 키워드
-            "다산에듀", "미호"
-        ]
-        
-        # 키워드 매칭
-        for keyword in electrical_keywords:
-            if keyword in query_lower:
-                return True
-        
-        return False
+    def _is_technical_query(self, query: str) -> bool:
+        """기술/전문 분야 관련 질문인지 확인 (범용)"""
+        # 모든 질문을 기술 질문으로 간주하여 범용성 확보
+        return True
     
     def _generate_response(self, question: str, results: List[Dict], max_score: float) -> str:
         """검색 결과를 기반으로 응답 생성"""
@@ -127,7 +103,7 @@ class ImprovedRAGService:
                 try:
                     prompt = f"""질문: {question}
 
-전기공학 관련 질문에 2-3문단으로 간결하게 답변하세요."""
+위 질문에 대해 2-3문단으로 간결하게 답변하세요."""
                     llm_response = self.llm_client.query(question, prompt)
                     response += llm_response
                 except Exception as e:
@@ -158,7 +134,7 @@ class ImprovedRAGService:
 
 참고: {all_context[:500]}
 
-전기공학 관련 질문에 간결하게 답변하세요."""
+위 질문에 대해 간결하게 답변하세요."""
                 try:
                     llm_response = self.llm_client.query(question, prompt)
                     response += llm_response
@@ -186,7 +162,8 @@ class ImprovedRAGService:
         try:
             with DDGS() as ddgs:
                 results = []
-                search_query = f"전기공학 {query}"
+                # 전기공학 제한 제거 - 일반 검색
+                search_query = query
                 
                 for r in ddgs.text(search_query, max_results=3):
                     results.append({
@@ -200,24 +177,14 @@ class ImprovedRAGService:
             logger.error(f"웹 검색 실패: {e}")
             return []
     
-    def _handle_non_electrical_query(self, question: str) -> str:
-        """전기공학 외 질문 처리"""
-        # LLM으로 일반 답변 생성
-        response = self.llm_client.query(
-            question,
-            "이 질문은 전기공학과 관련이 없는 질문입니다. 일반적인 답변을 제공하되, 간단히 답변하세요."
-        )
-        
-        response += "\n\n*정확하지 않을 수 있습니다.*"
-        
-        return response
+    # 전기공학 외 질문 처리 메서드 제거 - 모든 질문을 동일하게 처리
     
     def _handle_low_confidence_query(self, question: str) -> str:
         """낮은 신뢰도 질문 처리"""
         # 프롬프트 간소화
         prompt = f"""질문: {question}
 
-전기공학 관련 질문에 2-3문단으로 간결하게 답변하세요."""
+위 질문에 대해 2-3문단으로 간결하게 답변하세요."""
         
         try:
             llm_response = self.llm_client.query(question, prompt)
