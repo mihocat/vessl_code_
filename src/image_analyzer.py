@@ -291,7 +291,7 @@ class MultimodalRAGService:
         image: Optional[Union[Image.Image, str, bytes]] = None
     ) -> Dict[str, Any]:
         """
-        멀티모달 쿼리 처리
+        멀티모달 쿼리 처리 (Image-to-text → RAG → LLM)
         
         Args:
             text_query: 텍스트 질문
@@ -308,19 +308,43 @@ class MultimodalRAGService:
         
         if image:
             # 이미지 분석
-            caption = self.image_analyzer.generate_caption(image, detail_level="detailed")
-            ocr_text = self.image_analyzer.extract_text(image)
-            
-            context["image_analysis"] = {
-                "caption": caption,
-                "ocr_text": ocr_text
-            }
-            
-            # 텍스트 쿼리와 이미지 분석 결과 결합
-            image_context = f"이미지 설명: {caption}"
-            if ocr_text:
-                image_context += f"\n이미지 내 텍스트: {ocr_text}"
-            
-            context["combined_query"] = f"{text_query}\n\n[이미지 컨텍스트]\n{image_context}"
+            try:
+                # 상세 캡션 생성
+                caption = self.image_analyzer.generate_caption(image, detail_level="very_detailed")
+                
+                # OCR 텍스트 추출
+                ocr_text = self.image_analyzer.extract_text(image)
+                
+                # 수식이 포함된 경우 특별 처리
+                if any(keyword in text_query.lower() for keyword in ["수식", "공식", "equation", "formula"]):
+                    formula_analysis = self.image_analyzer.analyze_formula(image)
+                    if formula_analysis["success"]:
+                        ocr_text = formula_analysis.get("formula_text", ocr_text)
+                        caption = formula_analysis.get("description", caption)
+                
+                context["image_analysis"] = {
+                    "caption": caption,
+                    "ocr_text": ocr_text
+                }
+                
+                # 텍스트 쿼리와 이미지 분석 결과 결합
+                combined_parts = [text_query]
+                
+                if caption and caption != "이미지 분석에 실패했습니다.":
+                    combined_parts.append(f"\n[이미지 내용]\n{caption}")
+                
+                if ocr_text:
+                    combined_parts.append(f"\n[이미지에서 추출된 텍스트]\n{ocr_text}")
+                
+                context["combined_query"] = "\n".join(combined_parts)
+                
+            except Exception as e:
+                logger.error(f"Multimodal query processing failed: {e}")
+                context["image_analysis"] = {
+                    "error": str(e),
+                    "caption": "이미지 분석 실패",
+                    "ocr_text": ""
+                }
+                context["combined_query"] = f"{text_query}\n[이미지 분석 실패]"
         
         return context

@@ -39,9 +39,9 @@ class RAGConfig:
     rerank_k: int = 5
     
     # 점수 임계값
-    high_confidence_threshold: float = 0.9
+    high_confidence_threshold: float = 0.85  # 이미지 분석을 위해 약간 낮춤
     medium_confidence_threshold: float = 0.6
-    low_confidence_threshold: float = 0.2
+    low_confidence_threshold: float = 0.3
     
     # 점수 조정 가중치
     keyword_match_bonus: float = 0.1

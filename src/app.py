@@ -87,17 +87,30 @@ class ChatService:
         
         try:
             # 이미지 분석 (이미지가 있는 경우)
-            image_context = ""
-            if image and self.multimodal_service:
-                try:
-                    multimodal_result = self.multimodal_service.process_multimodal_query(
-                        question, image
-                    )
-                    # 이미지 분석 결과를 질문에 포함
-                    question = multimodal_result["combined_query"]
-                    image_context = multimodal_result.get("image_analysis", {})
-                except Exception as e:
-                    logger.error(f"Image analysis failed: {e}")
+            image_context = None
+            original_question = question  # 원본 질문 저장
+            
+            if image:
+                if self.multimodal_service:
+                    try:
+                        logger.info("Processing image with Florence-2...")
+                        multimodal_result = self.multimodal_service.process_multimodal_query(
+                            question, image
+                        )
+                        # 이미지 분석 결과를 질문에 포함
+                        question = multimodal_result["combined_query"]
+                        image_context = multimodal_result.get("image_analysis", {})
+                        logger.info(f"Image analysis completed: {image_context}")
+                    except Exception as e:
+                        logger.error(f"Image analysis failed: {e}")
+                        # Florence-2 실패 시 기본 처리
+                        image_context = {"error": "이미지 분석 서비스를 사용할 수 없습니다"}
+                        question = f"{original_question}\n[이미지가 첨부되었지만 분석할 수 없습니다]"
+                else:
+                    # Florence-2 초기화 실패 시
+                    logger.warning("Image analyzer not available")
+                    image_context = {"error": "이미지 분석 기능이 비활성화되어 있습니다"}
+                    question = f"{original_question}\n[이미지가 첨부되었으나 텍스트 기반으로만 답변합니다]"
             
             # RAG 검색 수행
             results, max_score = self.rag_system.search(question)
@@ -141,31 +154,49 @@ class ChatService:
         # response_header = f"### 질문: {question}\n\n"
         response_header = "답변: "
         
-        # 신뢰도 수준 결정
-        if max_score >= self.config.rag.high_confidence_threshold:
-            confidence_level = "high"
-        elif max_score >= self.config.rag.medium_confidence_threshold:
-            confidence_level = "medium"
+        # 신뢰도 수준 결정 (이미지가 있으면 항상 LLM 사용)
+        if image_context:
+            # 이미지가 있는 경우 항상 LLM 사용
+            confidence_level = "medium" if max_score >= self.config.rag.medium_confidence_threshold else "low"
         else:
-            confidence_level = "low"
+            # 기존 로직
+            if max_score >= self.config.rag.high_confidence_threshold:
+                confidence_level = "high"
+            elif max_score >= self.config.rag.medium_confidence_threshold:
+                confidence_level = "medium"
+            else:
+                confidence_level = "low"
         
-        # 높은 신뢰도 - 직접 답변 사용
-        if confidence_level == "high" and results:
+        # 높은 신뢰도 - 직접 답변 사용 (이미지가 없는 경우만)
+        if confidence_level == "high" and results and not image_context:
             best_result = results[0]
             response = response_header + best_result.answer
             
             if best_result.category and best_result.category != "general":
                 response += f"\n\n_[카테고리: {best_result.category}]_"
         
-        # 중간/낮은 신뢰도 - LLM 활용
+        # 중간/낮은 신뢰도 또는 이미지가 있는 경우 - LLM 활용
         else:
-            # 웹 검색 수행 (낮은 신뢰도인 경우)
+            # 웹 검색 수행 (낮은 신뢰도이고 이미지가 없는 경우)
             web_results = []
-            if confidence_level == "low":
+            if confidence_level == "low" and not image_context:
                 web_results = self.web_search.search(question)
             
             # 컨텍스트 준비
             context = self.response_generator.prepare_context(results, web_results)
+            
+            # 이미지 컨텍스트 추가
+            if image_context and isinstance(image_context, dict):
+                image_info = ""
+                if "caption" in image_context:
+                    image_info += f"\n[이미지 설명] {image_context['caption']}"
+                if "ocr_text" in image_context:
+                    image_info += f"\n[이미지 내 텍스트] {image_context['ocr_text']}"
+                if "error" in image_context:
+                    image_info += f"\n[이미지 분석 오류] {image_context['error']}"
+                
+                if image_info:
+                    context = image_info + "\n\n" + context if context else image_info
             
             # 프롬프트 생성
             prompt = self.response_generator.generate_prompt(
