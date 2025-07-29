@@ -201,7 +201,7 @@ class LLMClient:
         """에러 메시지 반환"""
         return "죄송합니다. 응답 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
     
-    def wait_for_server(self, max_attempts: int = 60, delay: int = 3) -> bool:
+    def wait_for_server(self, max_attempts: int = 100, delay: int = 3) -> bool:
         """
         서버 준비 대기
         
