@@ -16,8 +16,6 @@ class LLMConfig:
     base_url: str = "http://localhost:8000"
     model_name: str = "test_model"
     # model_name: str = "yanolja/EEVE-Korean-Instruct-10.8B-v1.0"
-    # model_name: str = "rtzr/ko-gemma-2-9b-it"
-    # model_name: str = "MLP-KTLim/llama-3-Korean-Bllossom-8B"
     max_tokens: int = 800
     temperature: float = 0.1
     top_p: float = 0.85
@@ -41,7 +39,7 @@ class RAGConfig:
     rerank_k: int = 5
     
     # 점수 임계값
-    high_confidence_threshold: float = 0.8
+    high_confidence_threshold: float = 0.9
     medium_confidence_threshold: float = 0.6
     low_confidence_threshold: float = 0.2
     

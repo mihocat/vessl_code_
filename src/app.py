@@ -97,7 +97,8 @@ class ChatService:
         Returns:
             생성된 응답
         """
-        response_header = f"### 질문: {question}\n\n"
+        # response_header = f"### 질문: {question}\n\n"
+        response_header = "답변: "
         
         # 신뢰도 수준 결정
         if max_score >= self.config.rag.high_confidence_threshold:
@@ -149,7 +150,7 @@ class ChatService:
                 response += f"\n- {q}"
         
         # 디버그 정보 (개발 모드에서만)
-        if logger.isEnabledFor(logging.DEBUG):
+        # if logger.isEnabledFor(logging.DEBUG):
             response += f"\n\n_[점수: {max_score:.3f}, 신뢰도: {confidence_level}]_"
         
         return response
