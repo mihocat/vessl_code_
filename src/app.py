@@ -100,28 +100,39 @@ class ImprovedRAGService:
             context_parts = []
             for i, result in enumerate(results[:3]):
                 if result['score'] >= 0.4:
-                    context_parts.append(f"참고 {i+1}: {result['answer'][:300]}...")
+                    # 답변 길이를 200자로 줄여 토큰 제한 문제 해결
+                    context_parts.append(f"참고 {i+1}: {result['answer'][:200]}...")
             
             if context_parts:
                 context = "\n\n".join(context_parts)
-                prompt = f"""사용자의 질문에 대해 자연스러운 답변을 생성해주세요. 참고자료가 있다면 활용하되, 직접 인용하지 말고 재구성하여 답변하세요.
-
-사용자 질문: {question}
+                # 프롬프트 간소화로 토큰 사용량 감소
+                prompt = f"""질문: {question}
 
 참고자료:
 {context}
 
-답변 시 주의사항:
-1. 참고자료가 질문과 관련이 적다면 일반적인 지식으로 답변
-2. 전문용어는 정확히 사용하되 수식은 피하거나 텍스트로 설명
-3. 핵심만 간결하게 2-3문단으로 답변
-4. 불필요한 반복 피하기
-5. 한국어로 자연스럽게 답변"""
+위 질문에 대해 참고자료를 활용하여 답변하세요.
+- 2-3문단으로 간결하게
+- 전문용어는 정확히, 수식은 텍스트로
+- 한국어로 자연스럽게"""
                 
-                llm_response = self.llm_client.query(question, prompt)
-                response += llm_response
+                try:
+                    llm_response = self.llm_client.query(question, prompt)
+                    response += llm_response
+                except Exception as e:
+                    logger.error(f"LLM 응답 생성 실패: {e}")
+                    response += "죄송합니다. 응답 생성 중 오류가 발생했습니다."
             else:
-                response = self._handle_low_confidence_query(question)
+                # _handle_low_confidence_query를 사용하되 중복 질문 제거
+                try:
+                    prompt = f"""질문: {question}
+
+전기공학 관련 질문에 2-3문단으로 간결하게 답변하세요."""
+                    llm_response = self.llm_client.query(question, prompt)
+                    response += llm_response
+                except Exception as e:
+                    logger.error(f"LLM 응답 생성 실패: {e}")
+                    response += "죄송합니다. 응답 생성 중 오류가 발생했습니다."
             
         else:
             # 낮은 신뢰도 - 웹 검색 + LLM
@@ -137,20 +148,23 @@ class ImprovedRAGService:
             for web in web_results[:3]:
                 web_context.append(f"{web['title']}: {web['snippet']}")
             
-            # 통합 프롬프트
-            all_context = "\n".join(db_context + web_context) if (db_context or web_context) else ""
+            # 통합 프롬프트 - 컨텍스트 길이 제한
+            db_context_limited = [ctx[:150] + "..." for ctx in db_context[:2]]
+            web_context_limited = [ctx[:100] + "..." for ctx in web_context[:2]]
+            all_context = "\n".join(db_context_limited + web_context_limited) if (db_context_limited or web_context_limited) else ""
             
             if all_context:
-                prompt = f"""전기공학 질문에 대해 다음 참고자료를 바탕으로 정확한 답변을 제공하세요.
+                prompt = f"""질문: {question}
 
-질문: {question}
+참고: {all_context[:500]}
 
-참고자료:
-{all_context}
-
-전문용어를 정확히 사용하여 한국어로 답변하세요."""
-                llm_response = self.llm_client.query(question, prompt)
-                response += llm_response
+전기공학 관련 질문에 간결하게 답변하세요."""
+                try:
+                    llm_response = self.llm_client.query(question, prompt)
+                    response += llm_response
+                except Exception as e:
+                    logger.error(f"LLM 응답 생성 실패: {e}")
+                    response += "죄송합니다. 응답 생성 중 오류가 발생했습니다."
             else:
                 response = self._handle_low_confidence_query(question)
         
@@ -200,20 +214,17 @@ class ImprovedRAGService:
     
     def _handle_low_confidence_query(self, question: str) -> str:
         """낮은 신뢰도 질문 처리"""
-        prompt = f"""사용자의 질문에 대해 답변해주세요.
+        # 프롬프트 간소화
+        prompt = f"""질문: {question}
 
-질문: {question}
-
-답변 시 주의사항:
-1. 전기공학 관련 질문이라면 전문 지식을 활용하여 답변
-2. 일반적인 질문이라면 적절히 답변
-3. 핵심만 간결하게 2-3문단으로 답변
-4. 수식은 텍스트로 설명
-5. 한국어로 자연스럽게 답변"""
+전기공학 관련 질문에 2-3문단으로 간결하게 답변하세요."""
         
-        llm_response = self.llm_client.query(question, prompt)
-        
-        return f"[질문] {question}\n\n{llm_response}"
+        try:
+            llm_response = self.llm_client.query(question, prompt)
+            return f"[질문] {question}\n\n{llm_response}"
+        except Exception as e:
+            logger.error(f"낮은 신뢰도 응답 생성 실패: {e}")
+            return f"[질문] {question}\n\n죄송합니다. 해당 질문에 대한 정확한 답변을 찾을 수 없습니다."
 
 
 def create_gradio_app(llm_url: str = "http://localhost:8000") -> gr.Blocks:
