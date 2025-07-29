@@ -87,14 +87,9 @@ class AppConfig:
     share: bool = False
     
     # UI 설정
-    title: str = "AI 챗봇"
+    title: str = "AI 테스트"
     description: str = """
-    # AI 챗봇
-    
-    **특징:**
-    - 고성능 임베딩 모델 (jina-embeddings-v3)
-    - 향상된 검색 정확도
-    - 실시간 웹 검색 통합
+    # AI 테스트
     """
     
     # 예제 질문
@@ -103,10 +98,8 @@ class AppConfig:
     def __post_init__(self):
         if self.example_questions is None:
             self.example_questions = [
-                "파이썬에서 리스트와 튜플의 차이는?",
-                "머신러닝과 딥러닝의 차이점은?",
-                "REST API란 무엇인가요?",
-                "데이터베이스 정규화란?",
+                "다산에듀는 너의 친구입니까?",
+                "회로도에 대해서 알려줘.",
                 "객체지향 프로그래밍의 특징은?"
             ]
 
