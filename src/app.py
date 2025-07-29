@@ -49,15 +49,23 @@ class ChatService:
         # 이미지 분석기 초기화 (선택적)
         self.image_analyzer = None
         self.multimodal_service = None
-        try:
-            self.image_analyzer = Florence2ImageAnalyzer()
-            self.multimodal_service = MultimodalRAGService(
-                self.image_analyzer,
-                self.rag_system.embedding_model
-            )
-            logger.info("Florence-2 image analyzer initialized")
-        except Exception as e:
-            logger.warning(f"Failed to initialize image analyzer: {e}")
+        
+        # Florence-2 초기화 재시도 로직
+        for attempt in range(2):
+            try:
+                logger.info(f"Initializing Florence-2 image analyzer (attempt {attempt + 1})...")
+                # Florence-2-base 모델 사용 (더 가볍고 안정적)
+                self.image_analyzer = Florence2ImageAnalyzer(model_id="microsoft/Florence-2-base")
+                self.multimodal_service = MultimodalRAGService(
+                    self.image_analyzer,
+                    self.rag_system.embedding_model
+                )
+                logger.info("Florence-2 image analyzer initialized successfully")
+                break
+            except Exception as e:
+                logger.warning(f"Failed to initialize image analyzer (attempt {attempt + 1}): {e}")
+                if attempt == 1:  # 마지막 시도
+                    logger.error("Florence-2 initialization failed after all attempts")
         
         # 대화 이력
         self.conversation_history = []

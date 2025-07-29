@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class Florence2ImageAnalyzer:
     """Florence-2 기반 이미지 분석기"""
     
-    def __init__(self, model_id: str = "microsoft/Florence-2-large"):
+    def __init__(self, model_id: str = "microsoft/Florence-2-base"):
         """
         Florence-2 이미지 분석기 초기화
         
@@ -36,18 +36,29 @@ class Florence2ImageAnalyzer:
         """모델 로드"""
         try:
             logger.info(f"Loading Florence-2 model: {self.model_id}")
-            # Florence-2 모델 로드 시 dtype 일치 문제 해결
-            dtype = torch.float16 if self.device == "cuda" else torch.float32
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_id, 
-                trust_remote_code=True,
-                torch_dtype=dtype
-            ).to(self.device)
+            
+            # CPU에서 먼저 로드 후 GPU로 이동하는 방식으로 변경
             self.processor = AutoProcessor.from_pretrained(
                 self.model_id, 
                 trust_remote_code=True
             )
-            logger.info("Florence-2 model loaded successfully")
+            
+            # 모델 로드 - dtype 자동 처리
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_id, 
+                trust_remote_code=True,
+                torch_dtype="auto",  # 자동으로 적절한 dtype 선택
+                low_cpu_mem_usage=True
+            )
+            
+            # GPU 사용 가능 시 이동
+            if self.device == "cuda" and torch.cuda.is_available():
+                self.model = self.model.to(self.device)
+                
+            # 모델을 평가 모드로 설정
+            self.model.eval()
+            
+            logger.info(f"Florence-2 model loaded successfully on {self.device}")
         except Exception as e:
             logger.error(f"Failed to load Florence-2 model: {e}")
             raise
@@ -96,26 +107,50 @@ class Florence2ImageAnalyzer:
             else:
                 prompt = task
             
-            # 이미지 처리 - dtype 일치를 위해 수정
+            # 이미지 처리
             inputs = self.processor(
                 text=prompt, 
                 images=image, 
                 return_tensors="pt"
             )
             
-            # 입력 텐서의 dtype을 모델과 일치시킴
-            if self.device == "cuda":
-                inputs = {k: v.to(self.device) if torch.is_tensor(v) else v for k, v in inputs.items()}
+            # 추론을 위한 입력 준비
+            generated_ids = None
             
-            # 추론
+            # 추론 - dtype 문제 해결을 위한 안전한 방법
             with torch.no_grad():
-                generated_ids = self.model.generate(
-                    input_ids=inputs["input_ids"],
-                    pixel_values=inputs["pixel_values"],
-                    max_new_tokens=1024,
-                    num_beams=3,
-                    do_sample=False
-                )
+                try:
+                    # 모든 입력을 적절한 device로 이동
+                    input_ids = inputs["input_ids"].to(self.device)
+                    pixel_values = inputs["pixel_values"].to(self.device)
+                    
+                    # 모델의 dtype과 일치시키기
+                    if hasattr(self.model, 'dtype') and self.model.dtype == torch.float16:
+                        pixel_values = pixel_values.half()
+                    elif hasattr(self.model, 'dtype') and self.model.dtype == torch.bfloat16:
+                        pixel_values = pixel_values.bfloat16()
+                    
+                    generated_ids = self.model.generate(
+                        input_ids=input_ids,
+                        pixel_values=pixel_values,
+                        max_new_tokens=1024,
+                        num_beams=3,
+                        do_sample=False
+                    )
+                except RuntimeError as e:
+                    if "dtype" in str(e):
+                        logger.warning(f"Dtype mismatch detected, retrying with float32: {e}")
+                        # float32로 재시도
+                        pixel_values = inputs["pixel_values"].to(self.device).float()
+                        generated_ids = self.model.generate(
+                            input_ids=input_ids,
+                            pixel_values=pixel_values,
+                            max_new_tokens=1024,
+                            num_beams=3,
+                            do_sample=False
+                        )
+                    else:
+                        raise
             
             # 결과 디코딩
             generated_text = self.processor.batch_decode(
