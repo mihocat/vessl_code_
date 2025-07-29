@@ -41,7 +41,7 @@ class WebSearchService:
         
     def search(self, query: str) -> List[Dict[str, str]]:
         """
-        웹 검색 수행 (네이버, 구글 우선순위)
+        웹 검색 수행 (구글 한국어, 네이버 우선순위)
         
         Args:
             query: 검색 쿼리
@@ -51,19 +51,19 @@ class WebSearchService:
         """
         results = []
         
-        # 1. 네이버 검색 시도
-        naver_results = self._search_naver(query)
-        if naver_results:
-            results.extend(naver_results)
+        # 1. 구글 검색 시도 (한국어 우선)
+        google_results = self._search_google(query)
+        if google_results:
+            results.extend(google_results)
             if len(results) >= self.config.max_results:
                 return results[:self.config.max_results]
         
-        # 2. 구글 검색 시도 (네이버 결과가 부족한 경우)
+        # 2. 네이버 검색 시도 (구글 결과가 부족한 경우)
         needed = self.config.max_results - len(results)
         if needed > 0:
-            google_results = self._search_google(query)
-            if google_results:
-                results.extend(google_results[:needed])
+            naver_results = self._search_naver(query)
+            if naver_results:
+                results.extend(naver_results[:needed])
         
         # 3. DuckDuckGo 검색 시도 (결과가 여전히 부족한 경우)
         needed = self.config.max_results - len(results)
