@@ -221,9 +221,8 @@ class ChatService:
             for q in related_questions:
                 response += f"\n- {q}"
         
-        # 디버그 정보 (개발 모드에서만)
-        # if logger.isEnabledFor(logging.DEBUG):
-            response += f"\n\n_[점수: {max_score:.3f}, 신뢰도: {confidence_level}]_"
+        # 점수와 신뢰도 정보 표시
+        response += f"\n\n[점수: {max_score:.3f}, 신뢰도: {confidence_level}]"
         
         return response
     

@@ -147,6 +147,10 @@ class LLMClient:
             "frequency_penalty": self.config.frequency_penalty,
             "stop": ["<|eot_id|>"]
         }
+        
+        # repetition_penalty 추가 (vLLM이 지원하는 경우)
+        if hasattr(self.config, 'repetition_penalty'):
+            payload["repetition_penalty"] = self.config.repetition_penalty
         logger.debug(f"Building payload with model: {self.config.model_name}")
         return payload
     

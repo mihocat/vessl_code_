@@ -36,11 +36,18 @@ class Florence2ImageAnalyzer:
         """모델 로드"""
         try:
             logger.info(f"Loading Florence-2 model: {self.model_id}")
+            # Florence-2 모델 로드 시 dtype 일치 문제 해결
+            dtype = torch.float16 if self.device == "cuda" else torch.float32
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_id, 
                 trust_remote_code=True,
-                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
-            ).to(self.device)
+                torch_dtype=dtype,
+                device_map="auto" if self.device == "cuda" else None
+            )
+            
+            # 모델이 이미 device에 있으면 to() 호출 생략
+            if self.device == "cpu":
+                self.model = self.model.to(self.device)
             self.processor = AutoProcessor.from_pretrained(
                 self.model_id, 
                 trust_remote_code=True
@@ -94,12 +101,16 @@ class Florence2ImageAnalyzer:
             else:
                 prompt = task
             
-            # 이미지 처리
+            # 이미지 처리 - dtype 일치를 위해 수정
             inputs = self.processor(
                 text=prompt, 
                 images=image, 
                 return_tensors="pt"
-            ).to(self.device)
+            )
+            
+            # 입력 텐서의 dtype을 모델과 일치시킴
+            if self.device == "cuda":
+                inputs = {k: v.to(self.device) if torch.is_tensor(v) else v for k, v in inputs.items()}
             
             # 추론
             with torch.no_grad():

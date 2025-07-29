@@ -21,6 +21,7 @@ class LLMConfig:
     top_p: float = 0.85
     presence_penalty: float = 0.05
     frequency_penalty: float = 0.05
+    repetition_penalty: float = 1.2  # 반복 방지를 위한 penalty 추가
     timeout: int = 45
     health_check_timeout: int = 2
 
@@ -38,10 +39,10 @@ class RAGConfig:
     search_k: int = 10
     rerank_k: int = 5
     
-    # 점수 임계값
-    high_confidence_threshold: float = 0.85  # 이미지 분석을 위해 약간 낮춤
-    medium_confidence_threshold: float = 0.6
-    low_confidence_threshold: float = 0.3
+    # 점수 임계값 (현실적인 값으로 조정)
+    high_confidence_threshold: float = 0.75  # 높은 신뢰도
+    medium_confidence_threshold: float = 0.5   # 중간 신뢰도
+    low_confidence_threshold: float = 0.25    # 낮은 신뢰도
     
     # 점수 조정 가중치
     keyword_match_bonus: float = 0.1

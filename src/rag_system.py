@@ -163,8 +163,10 @@ class VectorStore:
                 metadata = results["metadatas"][0][i]
                 distance = results["distances"][0][i]
                 
-                # 코사인 유사도 계산
-                similarity = 1 - distance
+                # 코사인 유사도 계산 (ChromaDB는 이미 코사인 거리를 반환)
+                # distance는 0~2 범위 (0: 동일, 2: 완전히 다름)
+                # 유사도로 변환: (2 - distance) / 2
+                similarity = (2 - distance) / 2
                 
                 search_results.append(SearchResult(
                     question=metadata["question"],
