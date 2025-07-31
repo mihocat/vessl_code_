@@ -68,12 +68,26 @@ class ChatService:
                 )
                 logger.info("Florence-2 image analyzer initialized successfully")
                 break
+            except torch.cuda.OutOfMemoryError:
+                logger.error(f"GPU out of memory during Florence-2 initialization (attempt {attempt + 1})")
+                # GPU 메모리 강제 정리
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                self.image_analyzer = None
+                self.multimodal_service = None
+                
+                if attempt == max_attempts - 1:
+                    logger.error("Florence-2 initialization failed due to GPU memory. Image analysis will be disabled.")
+                else:
+                    time.sleep(3)  # GPU 메모리 정리를 위해 더 긴 대기
             except Exception as e:
                 logger.warning(f"Failed to initialize image analyzer (attempt {attempt + 1}/{max_attempts}): {e}")
+                self.image_analyzer = None
+                self.multimodal_service = None
+                
                 if attempt == max_attempts - 1:  # 마지막 시도
                     logger.error("Florence-2 initialization failed after all attempts")
-                    self.image_analyzer = None
-                    self.multimodal_service = None
                 else:
                     # 다음 시도 전 대기
                     time.sleep(2)
@@ -134,14 +148,24 @@ class ChatService:
                         logger.info(f"Image analysis completed: {image_context}")
                     except Exception as e:
                         logger.error(f"Image analysis failed: {e}", exc_info=True)
-                        # Florence-2 실패 시 기본 처리
-                        image_context = {"error": "이미지 분석 중 오류가 발생했습니다"}
-                        question = f"{original_question}\n[이미지가 첨부되었지만 분석할 수 없습니다]"
+                        # Florence-2 실패 시에도 사용자에게 도움이 되는 응답 제공
+                        image_context = {
+                            "error": str(e),
+                            "caption": "[이미지 분석 실패]",
+                            "ocr_text": ""
+                        }
+                        # 질문은 원본 그대로 유지하여 텍스트 기반 검색 가능하게 함
+                        question = original_question
                 else:
                     # Florence-2 초기화 실패 시
                     logger.warning("Image analyzer not available")
-                    image_context = {"error": "이미지 분석 기능이 비활성화되어 있습니다"}
-                    question = f"{original_question}\n[이미지가 첨부되었으나 텍스트 기반으로만 답변합니다]"
+                    image_context = {
+                        "error": "Image analyzer not initialized",
+                        "caption": "[이미지 분석 기능 비활성화]",
+                        "ocr_text": ""
+                    }
+                    # 질문은 원본 그대로 유지
+                    question = original_question
             
             # RAG 검색 수행
             results, max_score = self.rag_system.search(question)
@@ -216,6 +240,12 @@ class ChatService:
             # 컨텍스트 준비 (이미지 컨텍스트 포함)
             context = self.response_generator.prepare_context(results, web_results, image_context)
             
+            # 이미지 분석 실패 메시지 추가
+            image_error_prefix = ""
+            if image_context and "error" in image_context:
+                if "caption" in image_context and "[이미지 분석" in image_context["caption"]:
+                    image_error_prefix = "[이미지 분석 실패] "
+            
             # 프롬프트 생성
             prompt = self.response_generator.generate_prompt(
                 question, context, confidence_level
@@ -225,12 +255,15 @@ class ChatService:
             try:
                 if prompt:  # 프롬프트가 있는 경우만 LLM 호출
                     llm_response = self.llm_client.query(prompt, "")
-                    response = response_header + llm_response
+                    response = response_header + image_error_prefix + llm_response
                 else:
-                    response = response_header + "죄송합니다. 관련 정보를 찾을 수 없습니다."
+                    response = response_header + image_error_prefix + "죄송합니다. 관련 정보를 찾을 수 없습니다."
             except Exception as e:
                 logger.error(f"LLM response generation failed: {e}")
-                response = response_header + "죄송합니다. 응답 생성 중 오류가 발생했습니다."
+                if image_error_prefix:
+                    response = response_header + image_error_prefix + "이미지는 분석할 수 없었지만, 텍스트 기반으로 답변드립니다. 죄송합니다. 응답 생성 중 추가 오류가 발생했습니다."
+                else:
+                    response = response_header + "죄송합니다. 응답 생성 중 오류가 발생했습니다."
         
         # 관련 질문 추천
         related_questions = self._get_related_questions(question, results)

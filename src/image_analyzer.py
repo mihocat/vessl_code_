@@ -37,6 +37,10 @@ class Florence2ImageAnalyzer:
         try:
             logger.info(f"Loading Florence-2 model: {self.model_id}")
             
+            # GPU 메모리 정리
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
             # CPU에서 먼저 로드 후 GPU로 이동하는 방식으로 변경
             self.processor = AutoProcessor.from_pretrained(
                 self.model_id, 
@@ -53,7 +57,12 @@ class Florence2ImageAnalyzer:
             
             # GPU 사용 가능 시 이동
             if self.device == "cuda" and torch.cuda.is_available():
-                self.model = self.model.to(self.device)
+                try:
+                    self.model = self.model.to(self.device)
+                except torch.cuda.OutOfMemoryError:
+                    logger.warning("GPU out of memory, falling back to CPU")
+                    self.device = "cpu"
+                    self.model = self.model.to(self.device)
                 
             # 모델을 평가 모드로 설정
             self.model.eval()
@@ -61,6 +70,8 @@ class Florence2ImageAnalyzer:
             logger.info(f"Florence-2 model loaded successfully on {self.device}")
         except Exception as e:
             logger.error(f"Failed to load Florence-2 model: {e}")
+            self.model = None
+            self.processor = None
             raise
     
     def analyze_image(
@@ -90,7 +101,20 @@ class Florence2ImageAnalyzer:
         Returns:
             분석 결과 딕셔너리
         """
+        # 기본 에러 응답
+        error_response = {
+            "caption": "[이미지 분석 실패]",
+            "ocr_text": "",
+            "error": None
+        }
+        
         try:
+            # 모델이 로드되지 않은 경우
+            if self.model is None or self.processor is None:
+                error_response["error"] = "Model not loaded"
+                logger.error("Florence-2 model is not loaded")
+                return error_response
+            
             # 이미지 로드
             if isinstance(image, str):
                 # 파일 경로인 경우
@@ -99,7 +123,8 @@ class Florence2ImageAnalyzer:
                 # 바이트 데이터인 경우
                 image = Image.open(io.BytesIO(image)).convert("RGB")
             elif not isinstance(image, Image.Image):
-                raise ValueError("Invalid image format")
+                error_response["error"] = "Invalid image format"
+                return error_response
             
             # 프롬프트 구성
             if text_input:
@@ -176,14 +201,14 @@ class Florence2ImageAnalyzer:
                 "success": True
             }
             
+        except torch.cuda.OutOfMemoryError:
+            logger.error("GPU out of memory during image analysis")
+            error_response["error"] = "GPU memory error"
+            return error_response
         except Exception as e:
             logger.error(f"Image analysis failed: {e}")
-            return {
-                "task": task,
-                "result": None,
-                "error": str(e),
-                "success": False
-            }
+            error_response["error"] = str(e)
+            return error_response
     
     def extract_text(self, image: Union[Image.Image, str, bytes]) -> str:
         """
