@@ -10,6 +10,7 @@ import time
 import logging
 from typing import List, Tuple, Optional, Union
 from PIL import Image
+import torch
 
 import gradio as gr
 
@@ -51,9 +52,14 @@ class ChatService:
         self.multimodal_service = None
         
         # Florence-2 초기화 재시도 로직
-        for attempt in range(2):
+        max_attempts = 3
+        for attempt in range(max_attempts):
             try:
-                logger.info(f"Initializing Florence-2 image analyzer (attempt {attempt + 1})...")
+                logger.info(f"Initializing Florence-2 image analyzer (attempt {attempt + 1}/{max_attempts})...")
+                # GPU 메모리 정리
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                
                 # Florence-2-base 모델 사용 (더 가볍고 안정적)
                 self.image_analyzer = Florence2ImageAnalyzer(model_id="microsoft/Florence-2-base")
                 self.multimodal_service = MultimodalRAGService(
@@ -63,9 +69,14 @@ class ChatService:
                 logger.info("Florence-2 image analyzer initialized successfully")
                 break
             except Exception as e:
-                logger.warning(f"Failed to initialize image analyzer (attempt {attempt + 1}): {e}")
-                if attempt == 1:  # 마지막 시도
+                logger.warning(f"Failed to initialize image analyzer (attempt {attempt + 1}/{max_attempts}): {e}")
+                if attempt == max_attempts - 1:  # 마지막 시도
                     logger.error("Florence-2 initialization failed after all attempts")
+                    self.image_analyzer = None
+                    self.multimodal_service = None
+                else:
+                    # 다음 시도 전 대기
+                    time.sleep(2)
         
         # 대화 이력
         self.conversation_history = []
@@ -99,9 +110,21 @@ class ChatService:
             original_question = question  # 원본 질문 저장
             
             if image:
-                if self.multimodal_service:
+                if self.multimodal_service and self.image_analyzer:
                     try:
                         logger.info("Processing image with Florence-2...")
+                        # 이미지 크기 확인 및 조정
+                        if hasattr(image, 'size'):
+                            width, height = image.size
+                            max_size = 1024
+                            if width > max_size or height > max_size:
+                                # 이미지 크기 조정
+                                ratio = min(max_size/width, max_size/height)
+                                new_width = int(width * ratio)
+                                new_height = int(height * ratio)
+                                image = image.resize((new_width, new_height), Image.LANCZOS)
+                                logger.info(f"Resized image from {width}x{height} to {new_width}x{new_height}")
+                        
                         multimodal_result = self.multimodal_service.process_multimodal_query(
                             question, image
                         )
@@ -110,9 +133,9 @@ class ChatService:
                         image_context = multimodal_result.get("image_analysis", {})
                         logger.info(f"Image analysis completed: {image_context}")
                     except Exception as e:
-                        logger.error(f"Image analysis failed: {e}")
+                        logger.error(f"Image analysis failed: {e}", exc_info=True)
                         # Florence-2 실패 시 기본 처리
-                        image_context = {"error": "이미지 분석 서비스를 사용할 수 없습니다"}
+                        image_context = {"error": "이미지 분석 중 오류가 발생했습니다"}
                         question = f"{original_question}\n[이미지가 첨부되었지만 분석할 수 없습니다]"
                 else:
                     # Florence-2 초기화 실패 시
@@ -190,21 +213,8 @@ class ChatService:
             if confidence_level == "low" and not image_context:
                 web_results = self.web_search.search(question)
             
-            # 컨텍스트 준비
-            context = self.response_generator.prepare_context(results, web_results)
-            
-            # 이미지 컨텍스트 추가
-            if image_context and isinstance(image_context, dict):
-                image_info = ""
-                if "caption" in image_context:
-                    image_info += f"\n[이미지 설명] {image_context['caption']}"
-                if "ocr_text" in image_context:
-                    image_info += f"\n[이미지 내 텍스트] {image_context['ocr_text']}"
-                if "error" in image_context:
-                    image_info += f"\n[이미지 분석 오류] {image_context['error']}"
-                
-                if image_info:
-                    context = image_info + "\n\n" + context if context else image_info
+            # 컨텍스트 준비 (이미지 컨텍스트 포함)
+            context = self.response_generator.prepare_context(results, web_results, image_context)
             
             # 프롬프트 생성
             prompt = self.response_generator.generate_prompt(

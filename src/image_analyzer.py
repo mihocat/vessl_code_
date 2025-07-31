@@ -66,7 +66,7 @@ class Florence2ImageAnalyzer:
     def analyze_image(
         self, 
         image: Union[Image.Image, str, bytes],
-        task: str = "<DETAILED_CAPTION>",
+        task: str = "<CAPTION>",  # 기본값을 간단한 캡션으로 변경
         text_input: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -133,8 +133,8 @@ class Florence2ImageAnalyzer:
                     generated_ids = self.model.generate(
                         input_ids=input_ids,
                         pixel_values=pixel_values,
-                        max_new_tokens=1024,
-                        num_beams=3,
+                        max_new_tokens=256,  # 토큰 수 대폭 축소
+                        num_beams=2,  # 빔 수 축소
                         do_sample=False
                     )
                 except RuntimeError as e:
@@ -145,8 +145,8 @@ class Florence2ImageAnalyzer:
                         generated_ids = self.model.generate(
                             input_ids=input_ids,
                             pixel_values=pixel_values,
-                            max_new_tokens=1024,
-                            num_beams=3,
+                            max_new_tokens=256,  # 토큰 수 대폭 축소
+                            num_beams=2,  # 빔 수 축소
                             do_sample=False
                         )
                     else:
@@ -165,9 +165,14 @@ class Florence2ImageAnalyzer:
                 image_size=(image.width, image.height)
             )
             
+            # 결과 후처리 - 길이 제한
+            result = parsed_answer[task] if task in parsed_answer else parsed_answer
+            if isinstance(result, str) and len(result) > 500:
+                result = result[:500] + "..."
+            
             return {
                 "task": task,
-                "result": parsed_answer[task] if task in parsed_answer else parsed_answer,
+                "result": result,
                 "success": True
             }
             
@@ -192,13 +197,29 @@ class Florence2ImageAnalyzer:
         """
         result = self.analyze_image(image, task="<OCR>")
         if result["success"] and result["result"]:
-            return result["result"]
+            text = result["result"]
+            # OCR 결과 정리 - 의미없는 반복 문자 제거
+            if isinstance(text, str):
+                # 연속된 한글 자모음만으로 이루어진 긴 문자열 제거
+                import re
+                # 의미없는 패턴 감지 (같은 문자 반복, 무작위 한글 자모음 등)
+                if len(text) > 100 and (
+                    len(set(text)) < len(text) * 0.1 or  # 문자 다양성이 너무 낮음
+                    re.search(r'[\u3130-\u318F]{20,}', text) or  # 한글 자모음만 20자 이상
+                    re.search(r'(.)\1{10,}', text)  # 같은 문자 10번 이상 반복
+                ):
+                    logger.warning("OCR result seems to be noise, returning empty")
+                    return ""
+                # 길이 제한
+                if len(text) > 200:
+                    text = text[:200] + "..."
+            return text
         return ""
     
     def generate_caption(
         self, 
         image: Union[Image.Image, str, bytes],
-        detail_level: str = "detailed"
+        detail_level: str = "simple"  # 기본값을 simple로 변경
     ) -> str:
         """
         이미지 캡션 생성
@@ -216,7 +237,7 @@ class Florence2ImageAnalyzer:
             "very_detailed": "<MORE_DETAILED_CAPTION>"
         }
         
-        task = task_map.get(detail_level, "<DETAILED_CAPTION>")
+        task = task_map.get(detail_level, "<CAPTION>")  # 기본값도 simple로
         result = self.analyze_image(image, task=task)
         
         if result["success"] and result["result"]:
@@ -350,18 +371,14 @@ class MultimodalRAGService:
         if image:
             # 이미지 분석
             try:
-                # 상세 캡션 생성
-                caption = self.image_analyzer.generate_caption(image, detail_level="very_detailed")
+                # 간단한 캡션 생성 (토큰 절약)
+                caption = self.image_analyzer.generate_caption(image, detail_level="simple")
                 
                 # OCR 텍스트 추출
                 ocr_text = self.image_analyzer.extract_text(image)
                 
-                # 수식이 포함된 경우 특별 처리
-                if any(keyword in text_query.lower() for keyword in ["수식", "공식", "equation", "formula"]):
-                    formula_analysis = self.image_analyzer.analyze_formula(image)
-                    if formula_analysis["success"]:
-                        ocr_text = formula_analysis.get("formula_text", ocr_text)
-                        caption = formula_analysis.get("description", caption)
+                # 수식이 포함된 경우에도 일반 OCR 사용 (더 안정적)
+                # analyze_formula는 더 복잡하고 오류가 발생하기 쉬움
                 
                 context["image_analysis"] = {
                     "caption": caption,

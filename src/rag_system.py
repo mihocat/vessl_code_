@@ -163,10 +163,19 @@ class VectorStore:
                 metadata = results["metadatas"][0][i]
                 distance = results["distances"][0][i]
                 
-                # 코사인 유사도 계산 (ChromaDB는 이미 코사인 거리를 반환)
-                # distance는 0~2 범위 (0: 동일, 2: 완전히 다름)
-                # 유사도로 변환: (2 - distance) / 2
-                similarity = (2 - distance) / 2
+                # 코사인 유사도 계산 (ChromaDB는 코사인 거리를 반환)
+                # ChromaDB의 cosine distance는 0~2 범위를 가짐
+                # 0: 동일한 벡터, 1: 직교, 2: 반대 방향
+                # 유사도로 변환: 1 - (distance / 2)
+                similarity = max(0.0, min(1.0, 1 - (distance / 2)))
+                
+                # 매우 작은 거리값은 조정 (과도한 1.0 방지)
+                if distance < 0.01:
+                    similarity = 0.99
+                
+                # 디버깅을 위한 로그 추가
+                if i < 5:  # 처음 5개 결과 로그
+                    logger.debug(f"Result {i}: distance={distance:.6f}, similarity={similarity:.4f}, Q: {metadata['question'][:50]}...")
                 
                 search_results.append(SearchResult(
                     question=metadata["question"],
@@ -285,6 +294,13 @@ class RAGSystem:
             trust_remote_code=True,
             device="cuda" if torch.cuda.is_available() else "cpu"
         )
+        
+        # 임베딩 모델 검증
+        try:
+            test_embedding = self.embedding_model.encode("테스트 문장")
+            logger.info(f"Embedding model loaded successfully. Embedding dim: {len(test_embedding)}")
+        except Exception as e:
+            logger.error(f"Embedding model test failed: {e}")
         
         # 벡터 저장소
         self.vector_store = VectorStore(self.rag_config, self.embedding_model)

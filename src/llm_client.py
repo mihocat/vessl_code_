@@ -95,14 +95,7 @@ class LLMClient:
     
     def _build_prompt(self, prompt: str, context: str) -> str:
         """프롬프트 구성"""
-        system_role = """당신은 도움이 되고 정확한 정보를 제공하는 AI 어시스턴트입니다.
-        
-답변 원칙:
-1. 제공된 참고자료를 기반으로 정확하게 답변하세요
-2. 참고자료가 충분하지 않으면 웹 검색 결과를 활용하세요
-3. 답변은 명확하고 구체적으로 작성하세요
-4. 모르는 내용은 추측하지 말고 솔직하게 모른다고 답변하세요
-5. 한국어로 자연스럽게 답변하세요"""
+        system_role = "당신은 전문적인 AI 어시스턴트입니다. 참고자료를 기반으로 정확하고 간결하게 답변하세요."
 
         # 컨텍스트가 있는 경우와 없는 경우 구분
         if context and context.strip():
@@ -137,6 +130,9 @@ class LLMClient:
         temperature: float
     ) -> Dict[str, Any]:
         """API 요청 페이로드 구성"""
+        # 토큰 제한을 더 엄격하게 (2048 토큰 모델 대응)
+        max_tokens = min(max_tokens, 400)  # 응답 토큰을 400으로 제한
+        
         payload = {
             "model": self.config.model_name,
             "prompt": prompt,

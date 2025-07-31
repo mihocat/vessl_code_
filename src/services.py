@@ -190,7 +190,8 @@ class ResponseGenerator:
     def prepare_context(
         self, 
         rag_results: List[SearchResult],
-        web_results: List[Dict[str, str]]
+        web_results: List[Dict[str, str]],
+        image_context: Optional[Dict[str, str]] = None
     ) -> str:
         """
         LLM을 위한 컨텍스트 준비
@@ -198,33 +199,45 @@ class ResponseGenerator:
         Args:
             rag_results: RAG 검색 결과
             web_results: 웹 검색 결과
+            image_context: 이미지 분석 결과
             
         Returns:
             준비된 컨텍스트 문자열
         """
         context_parts = []
         
-        # RAG 결과 처리
-        for i, result in enumerate(rag_results[:3]):
+        # RAG 결과 처리 (매우 짧게 제한)
+        for i, result in enumerate(rag_results[:1]):  # 1개만 사용
             if result.score >= 0.4:
-                answer_preview = result.answer[:self.config.db_context_char_limit]
-                if len(result.answer) > self.config.db_context_char_limit:
-                    answer_preview += "..."
-                context_parts.append(f"참고 {i+1}: {answer_preview}")
+                answer_preview = result.answer[:150]  # 글자 수 더 제한
+                context_parts.append(f"[관련 답변] {answer_preview}...")
         
-        # 웹 검색 결과 처리
-        for i, web in enumerate(web_results[:2]):
-            snippet = web['snippet'][:self.config.web_context_char_limit]
-            if len(web['snippet']) > self.config.web_context_char_limit:
-                snippet += "..."
-            context_parts.append(f"{web['title']}: {snippet}")
-        
-        # 전체 컨텍스트 길이 제한
-        full_context = "\n\n".join(context_parts)
-        if len(full_context) > self.config.context_limit:
-            full_context = full_context[:self.config.context_limit] + "..."
+        # 이미지 컨텍스트 처리
+        if image_context:
+            # 이미지 캡션과 OCR 텍스트 매우 짧게
+            caption = image_context.get('caption', '')[:100]
+            if caption:
+                context_parts.append(f"\n[이미지] {caption}...")
             
-        return full_context
+            ocr_text = image_context.get('ocr_text', '')[:50]
+            if ocr_text and len(ocr_text) > 10:  # 너무 짧은 OCR은 제외
+                context_parts.append(f"[OCR] {ocr_text}...")
+        
+        # 웹 검색 결과 추가 (매우 짧게)
+        if web_results and len(web_results) > 0:
+            result = web_results[0]
+            title = result.get('title', '')[:30]
+            snippet = result.get('snippet', '')[:50]
+            if title and snippet:
+                context_parts.append(f"\n[웹] {title}: {snippet}...")
+        
+        # 컨텍스트 결합 및 길이 제한
+        context = "\n".join(context_parts)
+        max_context_length = 500  # 매우 짧게
+        if len(context) > max_context_length:
+            context = context[:max_context_length] + "..."
+            
+        return context
     
     def generate_prompt(
         self,
@@ -251,13 +264,9 @@ class ResponseGenerator:
             # 중간 신뢰도 - 재구성
             return f"""질문: {question}
 
-참고자료:
-{context}
+참고: {context}
 
-위 질문에 대해 참고자료를 활용하여 답변하세요.
-- 2-3문단으로 간결하게
-- 전문용어는 정확히
-- 한국어로 자연스럽게"""
+간결하게 답변하세요."""
             
         else:
             # 낮은 신뢰도 - 일반적 답변
@@ -266,8 +275,8 @@ class ResponseGenerator:
 
 참고: {context}
 
-위 질문에 대해 간결하게 답변하세요."""
+간결하게 답변하세요."""
             else:
                 return f"""질문: {question}
 
-위 질문에 대해 2-3문단으로 간결하게 답변하세요."""
+간결하게 답변하세요."""
