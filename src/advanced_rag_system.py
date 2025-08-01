@@ -52,12 +52,18 @@ class AdvancedRAGSystem:
         
         # 멀티모달 OCR 파이프라인
         try:
-            from multimodal_ocr import MultimodalOCRPipeline
-            self.ocr_pipeline = MultimodalOCRPipeline()
-            logger.info("Multimodal OCR pipeline loaded")
+            from korean_ocr_pipeline import KoreanElectricalOCR
+            self.ocr_pipeline = KoreanElectricalOCR()
+            logger.info("Korean Electrical OCR pipeline loaded")
         except:
-            logger.warning("Multimodal OCR pipeline not available")
-            self.ocr_pipeline = None
+            logger.warning("Korean OCR pipeline not available, trying multimodal")
+            try:
+                from multimodal_ocr import MultimodalOCRPipeline
+                self.ocr_pipeline = MultimodalOCRPipeline()
+                logger.info("Multimodal OCR pipeline loaded")
+            except:
+                logger.warning("No OCR pipeline available")
+                self.ocr_pipeline = None
         
         logger.info("Advanced RAG system initialized")
     
@@ -118,8 +124,14 @@ class AdvancedRAGSystem:
         # 멀티모달 OCR 우선 사용
         if self.ocr_pipeline:
             try:
-                logger.info("Using multimodal OCR pipeline...")
-                ocr_result = self.ocr_pipeline.process_image(image)
+                if hasattr(self.ocr_pipeline, 'extract_electrical_data'):
+                    # Korean Electrical OCR
+                    logger.info("Using Korean Electrical OCR pipeline...")
+                    ocr_result = self.ocr_pipeline.extract_electrical_data(image)
+                else:
+                    # Standard multimodal OCR
+                    logger.info("Using multimodal OCR pipeline...")
+                    ocr_result = self.ocr_pipeline.process_image(image)
                 
                 # 결과 형식 변환
                 return {
@@ -129,7 +141,8 @@ class AdvancedRAGSystem:
                     'diagrams': ocr_result.get('diagrams', []),
                     'tables': ocr_result.get('tables', []),
                     'structured_content': ocr_result.get('structured_content', ''),
-                    'layout_analysis': ocr_result.get('layout_analysis', {})
+                    'layout_analysis': ocr_result.get('layout_analysis', {}),
+                    'electrical_analysis': ocr_result.get('electrical_analysis', {})
                 }
             except Exception as e:
                 logger.warning(f"Multimodal OCR failed: {e}, falling back to Florence-2")

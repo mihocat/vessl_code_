@@ -227,10 +227,13 @@ class HybridSearchEngine:
         # 4. 점수 결합
         combined_scores = {}
         
-        # 벡터 검색 점수
+        # 벡터 검색 점수 (거리를 점수로 변환)
         for result in vector_results:
             doc_id = result['metadata'].get('doc_id', result['id'])
-            combined_scores[doc_id] = alpha * (1 - result['distance'])
+            # 거리를 점수로 변환 (cosine distance 0~2를 similarity 0~1로)
+            distance = result.get('distance', 1.0)
+            similarity = max(0, 1 - distance / 2)  # Cosine distance to similarity
+            combined_scores[doc_id] = alpha * similarity
         
         # 키워드 검색 점수
         max_keyword_score = max(keyword_scores.values()) if keyword_scores else 1
@@ -250,7 +253,8 @@ class HybridSearchEngine:
             # 원본 문서 정보 가져오기
             doc_info = self._get_document_info(doc_id, vector_results)
             if doc_info:
-                doc_info['hybrid_score'] = score
+                # 정규화된 점수 (0~1 범위)
+                doc_info['hybrid_score'] = min(1.0, max(0.0, score))
                 results.append(doc_info)
         
         return results

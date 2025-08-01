@@ -83,12 +83,18 @@ class EnhancedChatService:
         
         # 5. 멀티모달 OCR (추가)
         try:
-            from multimodal_ocr import MultimodalOCRPipeline
-            self.ocr_pipeline = MultimodalOCRPipeline()
-            logger.info("Multimodal OCR pipeline loaded successfully")
+            from korean_ocr_pipeline import KoreanElectricalOCR
+            self.ocr_pipeline = KoreanElectricalOCR()
+            logger.info("Korean Electrical OCR pipeline loaded successfully")
         except Exception as e:
-            logger.warning(f"Failed to load multimodal OCR pipeline: {e}")
-            self.ocr_pipeline = None
+            logger.warning(f"Failed to load Korean OCR pipeline: {e}")
+            try:
+                from multimodal_ocr import MultimodalOCRPipeline
+                self.ocr_pipeline = MultimodalOCRPipeline()
+                logger.info("Fallback to Multimodal OCR pipeline")
+            except Exception as e2:
+                logger.warning(f"Failed to load any OCR pipeline: {e2}")
+                self.ocr_pipeline = None
         
         # 6. 응답 생성기
         self.response_generator = ChatGPTResponseGenerator()
@@ -132,6 +138,7 @@ class EnhancedChatService:
             if self.use_advanced and self.advanced_rag:
                 # 처리 모드 결정
                 mode = self._determine_processing_mode(question, image)
+                logger.info(f"Using advanced RAG system with mode: {mode}")
                 result = self.advanced_rag.process_query_advanced(
                     query=question,
                     image=image,
@@ -140,6 +147,7 @@ class EnhancedChatService:
                 )
             else:
                 # 기본 향상된 RAG 시스템으로 처리
+                logger.info("Using enhanced RAG system (advanced not available)")
                 result = self.enhanced_rag.process_query(
                     query=question,
                     image=image,
