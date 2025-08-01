@@ -252,6 +252,12 @@ class SearchRanker:
         # 점수 기준 정렬
         results.sort(key=lambda x: x.score, reverse=True)
         
+        # 점수 분포 로깅
+        if results:
+            scores = [r.score for r in results[:10]]  # 상위 10개
+            logger.info(f"Score distribution (top 10): {scores}")
+            logger.info(f"Score range: {min(scores):.4f} ~ {max(scores):.4f}")
+        
         # 임계값 필터링
         filtered_results = [
             r for r in results 

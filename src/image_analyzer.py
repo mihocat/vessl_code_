@@ -230,43 +230,69 @@ class Florence2ImageAnalyzer:
                 # 원본 텍스트 백업
                 original_text = text
                 
-                # 노이즈 패턴들 정의
-                noise_patterns = [
-                    r'[ㄱ-ㅎㅏ-ㅣ]{5,}',  # 연속된 한글 자모
-                    r'([가-힣])\1{4,}',  # 같은 한글 문자 4번 이상 반복
-                    r'방탄소년단|아이드라마|스타에세요',  # Florence-2가 자주 생성하는 무의미한 단어들
-                    r'[섀-힣]{10,}',  # 의미없는 긴 한글 문자열
-                    r'\b(\w)\1{3,}\b',  # 같은 문자 3번 이상 반복
+                # 전기공학 관련 유효한 패턴 추출
+                # 숫자, 단위, 수식, 변수 등
+                valid_patterns = [
+                    # 숫자와 단위
+                    r'\b\d+(?:\.\d+)?\s*(?:k|m|M|G)?(?:W|VA|V|A|Hz|Ω|F|H|s|m)?\b',
+                    # 전기 관련 변수들
+                    r'\b[VPIRQSZCLFXY][a-z0-9_]*\b',
+                    # 수식 기호
+                    r'[=+\-*/()\[\]{}]',
+                    # 분수
+                    r'\b\d+/\d+\b',
+                    # 지수
+                    r'\^|\*\*',
+                    # 한글 전기 용어 (제한적으로)
+                    r'\b(전압|전류|저항|커패시턴스|인덕턴스|주파수|전력|역률)\b',
                 ]
                 
-                # 노이즈 제거
-                cleaned_text = text
-                for pattern in noise_patterns:
-                    cleaned_text = re.sub(pattern, ' ', cleaned_text)
+                # Florence-2가 자주 생성하는 노이즈 패턴
+                noise_patterns = [
+                    # 특정 노이즈 단어들
+                    r'\b(방탄소년단|아이드라마|스타에|세요|가자여서림|성용|방선|서석립|세레|석설센|드국개레이)\b',
+                    # 연속된 한글 자모
+                    r'[ㄱ-ㅎㅏ-ㅣ]{3,}',
+                    # 같은 한글 문자 반복
+                    r'([가-힣])\1{2,}',
+                    # 의미없는 한글 문자열 (자모 포함)
+                    r'[삿-힣]{8,}',
+                ]
                 
-                # 여러 공백을 하나로 정리
-                cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
+                # 먼저 유효한 패턴들을 추출
+                valid_parts = []
+                for pattern in valid_patterns:
+                    matches = re.findall(pattern, text)
+                    valid_parts.extend(matches)
                 
-                # 너무 짧아진 경우 원본 사용
-                if len(cleaned_text) < 10 and len(original_text) > 50:
-                    cleaned_text = original_text
-                
-                # 여전히 노이즈가 많은 경우
-                if len(cleaned_text) > 50:
-                    # 숫자와 일반적인 단어 비율 확인
-                    numbers_and_words = re.findall(r'\b(?:\d+|[A-Za-z]+|kW|kVA|V|A|Hz|Ω)\b', cleaned_text)
-                    if len(numbers_and_words) / max(len(cleaned_text.split()), 1) < 0.2:
-                        logger.warning("OCR result seems to be mostly noise")
-                        # 숫자와 단위만 추출
-                        useful_parts = re.findall(r'\b\d+(?:\.\d+)?\s*(?:kW|kVA|V|A|Hz|Ω|W)?\b', original_text)
-                        if useful_parts:
-                            cleaned_text = ' '.join(useful_parts)
-                        else:
-                            cleaned_text = ""
+                # 유효한 부분이 있으면 그것만 사용
+                if valid_parts:
+                    # 중복 제거하고 순서 유지
+                    seen = set()
+                    unique_parts = []
+                    for part in valid_parts:
+                        if part not in seen:
+                            seen.add(part)
+                            unique_parts.append(part)
+                    
+                    cleaned_text = ' '.join(unique_parts)
+                    logger.info(f"Extracted valid OCR parts: {cleaned_text}")
+                else:
+                    # 유효한 부분이 없으면 노이즈 제거 시도
+                    cleaned_text = text
+                    for pattern in noise_patterns:
+                        cleaned_text = re.sub(pattern, ' ', cleaned_text)
+                    
+                    cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
+                    
+                    # 그래도 너무 짧거나 의미없으면 빈 문자열
+                    if len(cleaned_text) < 5 or len(set(cleaned_text)) < 3:
+                        cleaned_text = ""
+                        logger.warning("OCR result was mostly noise, returning empty string")
                 
                 # 길이 제한
-                if len(cleaned_text) > 150:
-                    cleaned_text = cleaned_text[:150] + "..."
+                if len(cleaned_text) > 100:
+                    cleaned_text = cleaned_text[:100] + "..."
                 
                 text = cleaned_text
             return text

@@ -95,31 +95,35 @@ class LLMClient:
     
     def _build_prompt(self, prompt: str, context: str) -> str:
         """프롬프트 구성"""
-        system_role = "당신은 전문적인 AI 어시스턴트입니다. 참고자료를 기반으로 정확하고 간결하게 답변하세요."
+        # 전기공학 전문 AI로 명확히 설정
+        system_role = """당신은 전기공학 전문 AI 어시스턴트입니다.
+다음 원칙을 따라 답변하세요:
+1. 참고자료가 있다면 그것을 기반으로 답변하세요
+2. 수식이나 계산이 필요한 경우 단계별로 설명하세요
+3. 전기공학 용어를 정확히 사용하세요
+4. 간결하고 명확하게 답변하세요"""
 
         # 컨텍스트가 있는 경우와 없는 경우 구분
         if context and context.strip():
+            # 컨텍스트가 있을 때는 참고자료 강조
             full_prompt = f"""{system_role}
 
-참고자료:
+=== 참고자료 ===
 {context}
+=================
+
+위 참고자료를 바탕으로 다음 질문에 답변해주세요.
 
 질문: {prompt}
 
 답변:"""
         else:
+            # 컨텍스트가 없을 때는 일반적인 답변
             full_prompt = f"""{system_role}
 
 질문: {prompt}
 
 답변:"""
-            
-        # 한국어 모델 특화 프롬프트 조정
-        if "korean" in self.config.model_name.lower() or "ko-" in self.config.model_name.lower():
-            full_prompt = full_prompt.replace(
-                "당신은 도움이 되고 정확한 정보를 제공하는 AI 어시스턴트입니다.",
-                "당신은 친절하고 전문적인 한국어 AI 어시스턴트입니다."
-            )
             
         return full_prompt
     
