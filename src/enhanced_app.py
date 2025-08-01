@@ -61,6 +61,20 @@ class EnhancedChatService:
             llm_client=llm_client
         )
         
+        # 2.5. 고급 RAG 시스템 (추가)
+        try:
+            from advanced_rag_system import AdvancedRAGSystem
+            self.advanced_rag = AdvancedRAGSystem(
+                vector_db=self.vector_db,
+                llm_client=llm_client
+            )
+            self.use_advanced = True
+            logger.info("Advanced RAG system loaded successfully")
+        except Exception as e:
+            logger.warning(f"Failed to load advanced RAG system: {e}")
+            self.advanced_rag = None
+            self.use_advanced = False
+        
         # 3. 호환성을 위한 어댑터
         self.rag_system = RAGSystemAdapter(self.enhanced_rag)
         
@@ -114,12 +128,23 @@ class EnhancedChatService:
             # 이미지가 있는 경우 멀티모달 처리
             response_style = self._determine_response_style(question, image)
             
-            # 향상된 RAG 시스템으로 처리
-            result = self.enhanced_rag.process_query(
-                query=question,
-                image=image,
-                response_style=response_style
-            )
+            # 고급 RAG 시스템 사용 (가능한 경우)
+            if self.use_advanced and self.advanced_rag:
+                # 처리 모드 결정
+                mode = self._determine_processing_mode(question, image)
+                result = self.advanced_rag.process_query_advanced(
+                    query=question,
+                    image=image,
+                    mode=mode,
+                    response_style=response_style
+                )
+            else:
+                # 기본 향상된 RAG 시스템으로 처리
+                result = self.enhanced_rag.process_query(
+                    query=question,
+                    image=image,
+                    response_style=response_style
+                )
             
             if result['success']:
                 response = result['response']
@@ -161,6 +186,25 @@ class EnhancedChatService:
         
         # 기본값
         return 'comprehensive'
+    
+    def _determine_processing_mode(self, question: str, image: Optional[Image.Image]) -> str:
+        """처리 모드 결정"""
+        question_lower = question.lower()
+        
+        # 복잡한 계산이나 추론이 필요한 경우
+        if any(keyword in question_lower for keyword in ['왜', '이유', '원리', '증명', '유도']):
+            return 'reasoning'
+        
+        # 이미지가 있고 복잡한 분석이 필요한 경우
+        if image and any(keyword in question_lower for keyword in ['분석', '해석', '풀이']):
+            return 'reasoning'
+        
+        # 일반적인 질문
+        if any(keyword in question_lower for keyword in ['간단', '빠르게', '요약']):
+            return 'fast'
+        
+        # 기본값: 균형잡힌 처리
+        return 'balanced'
     
     def _format_sources(self, search_results: List[Dict[str, Any]]) -> str:
         """검색 결과 소스 포맷팅"""
