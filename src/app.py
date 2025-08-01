@@ -60,8 +60,8 @@ class ChatService:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 
-                # Florence-2-base 모델 사용 (더 가볍고 안정적)
-                self.image_analyzer = Florence2ImageAnalyzer(model_id="microsoft/Florence-2-base")
+                # Florence-2-large 모델 사용 (향상된 OCR 성능)
+                self.image_analyzer = Florence2ImageAnalyzer(model_id="microsoft/Florence-2-large")
                 self.multimodal_service = MultimodalRAGService(
                     self.image_analyzer,
                     self.rag_system.embedding_model

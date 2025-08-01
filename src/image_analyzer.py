@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class Florence2ImageAnalyzer:
     """Florence-2 기반 이미지 분석기"""
     
-    def __init__(self, model_id: str = "microsoft/Florence-2-base"):
+    def __init__(self, model_id: str = "microsoft/Florence-2-large"):
         """
         Florence-2 이미지 분석기 초기화
         
@@ -158,9 +158,11 @@ class Florence2ImageAnalyzer:
                     generated_ids = self.model.generate(
                         input_ids=input_ids,
                         pixel_values=pixel_values,
-                        max_new_tokens=256,  # 토큰 수 대폭 축소
-                        num_beams=2,  # 빔 수 축소
-                        do_sample=False
+                        max_new_tokens=512,  # 토큰 수 증가 (large 모델은 더 많은 토큰 처리 가능)
+                        num_beams=3,  # 빔 수 약간 증가
+                        do_sample=False,
+                        temperature=0.1,  # 낮은 temperature로 더 정확한 결과
+                        top_p=0.9
                     )
                 except RuntimeError as e:
                     if "dtype" in str(e):
@@ -170,9 +172,11 @@ class Florence2ImageAnalyzer:
                         generated_ids = self.model.generate(
                             input_ids=input_ids,
                             pixel_values=pixel_values,
-                            max_new_tokens=256,  # 토큰 수 대폭 축소
-                            num_beams=2,  # 빔 수 축소
-                            do_sample=False
+                            max_new_tokens=512,  # 토큰 수 증가
+                            num_beams=3,  # 빔 수 약간 증가
+                            do_sample=False,
+                            temperature=0.1,
+                            top_p=0.9
                         )
                     else:
                         raise
@@ -233,18 +237,25 @@ class Florence2ImageAnalyzer:
                 # 전기공학 관련 유효한 패턴 추출
                 # 숫자, 단위, 수식, 변수 등
                 valid_patterns = [
-                    # 숫자와 단위
-                    r'\b\d+(?:\.\d+)?\s*(?:k|m|M|G)?(?:W|VA|V|A|Hz|Ω|F|H|s|m)?\b',
-                    # 전기 관련 변수들
+                    # 숫자와 단위 (더 정확한 패턴)
+                    r'\b\d+(?:\.\d+)?\s*(?:k|m|M|G)?(?:W|VA|V|A|Hz|Ω|Ω|ohm|F|H|s|m|Wb|T|°C)\b',
+                    # 전기 관련 변수들 (확장)
                     r'\b[VPIRQSZCLFXY][a-z0-9_]*\b',
-                    # 수식 기호
-                    r'[=+\-*/()\[\]{}]',
-                    # 분수
+                    r'\b[a-zA-Z]_[a-zA-Z0-9]+\b',  # 하첨자 변수
+                    # 수식 기호 (확장)
+                    r'[=+\-*/()\[\]{}|∠φθ°]',
+                    # 분수와 비율
                     r'\b\d+/\d+\b',
-                    # 지수
-                    r'\^|\*\*',
-                    # 한글 전기 용어 (제한적으로)
-                    r'\b(전압|전류|저항|커패시턴스|인덕턴스|주파수|전력|역률)\b',
+                    r'\b\d+:\d+\b',
+                    # 지수와 첨자
+                    r'\^|\*\*|²|³',
+                    r'_\{[^}]+\}|\^\{[^}]+\}',  # LaTeX 스타일
+                    # 한글 전기 용어 (확장)
+                    r'\b(전압|전류|저항|임피던스|어드미턴스|커패시턴스|인덕턴스|리액턴스|주파수|전력|유효전력|무효전력|피상전력|역률|주파수|위상|각속도|자속|자계|전계)\b',
+                    # 수학 기호
+                    r'[∑∫∂Δ∇×·√∞π]',
+                    # 그리스 문자
+                    r'[αβγδεζηθικλμνξοπρστυφχψω]',
                 ]
                 
                 # Florence-2가 자주 생성하는 노이즈 패턴
@@ -290,9 +301,9 @@ class Florence2ImageAnalyzer:
                         cleaned_text = ""
                         logger.warning("OCR result was mostly noise, returning empty string")
                 
-                # 길이 제한
-                if len(cleaned_text) > 100:
-                    cleaned_text = cleaned_text[:100] + "..."
+                # 길이 제한 (더 긴 텍스트 허용)
+                if len(cleaned_text) > 200:
+                    cleaned_text = cleaned_text[:200] + "..."
                 
                 text = cleaned_text
             return text
