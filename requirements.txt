@@ -29,3 +29,22 @@ pandas>=2.0.0
 
 # Optional for better performance
 accelerate>=0.25.0
+
+# Advanced OCR (optional - install separately if needed)
+# paddlepaddle==2.6.0
+# paddleocr>=2.7.0
+# easyocr>=1.7.0
+# pix2tex>=0.1.2
+
+# Document Understanding (optional - install separately if needed)
+# layoutparser[layoutmodels,tesseract]>=0.3.4
+# pdf2image>=1.16.0
+
+# Math Processing
+sympy>=1.12
+matplotlib>=3.7.0
+
+# Enhanced NLP
+openai>=1.0.0
+anthropic>=0.8.0
+tiktoken>=0.5.0
