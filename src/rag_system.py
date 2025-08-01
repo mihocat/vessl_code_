@@ -167,23 +167,32 @@ class VectorStore:
                 # ChromaDB의 cosine distance 범위 확인을 위한 상세 로깅
                 logger.debug(f"Raw distance from ChromaDB: {distance}")
                 
-                # ChromaDB는 normalized 벡터에 대해 0~2 범위의 cosine distance 반환
-                # 하지만 실제로는 다른 범위일 수 있음
-                # 안전한 변환을 위해 거리값의 범위 확인
+                # ChromaDB의 cosine distance를 similarity로 변환
+                # cosine distance = 1 - cosine similarity
+                # ChromaDB는 일반적으로 0~2 범위의 cosine distance 반환
                 if distance <= 0:
                     similarity = 1.0  # 완전히 동일
                 elif distance >= 2:
                     similarity = 0.0  # 완전히 반대
                 else:
-                    # 선형 변환: distance 0->1, 2->0
+                    # 표준 cosine similarity 계산
                     similarity = 1.0 - (distance / 2.0)
                 
-                # 추가 보정: 실제 ChromaDB 동작에 따라 조정
-                # 매우 작은 거리는 높은 유사도로, 하지만 완벽한 1.0은 피함
-                if distance < 0.1:
-                    similarity = min(0.95 + (0.05 * (1.0 - distance/0.1)), 0.99)
-                elif distance > 1.5:
-                    similarity = max(0.0, similarity * 0.5)  # 큰 거리는 더 낮은 점수
+                # 로그 변환을 통한 점수 분포 개선
+                # 작은 차이를 더 크게 만들어 점수 분포를 넓힘
+                import math
+                if similarity > 0.99:
+                    # 매우 높은 유사도는 약간 낮춤
+                    similarity = 0.95 + 0.05 * (similarity - 0.99) / 0.01
+                elif similarity > 0.9:
+                    # 높은 유사도 구간 확장
+                    similarity = 0.8 + 0.15 * (similarity - 0.9) / 0.1
+                elif similarity > 0.7:
+                    # 중간 유사도 구간 유지
+                    similarity = 0.6 + 0.2 * (similarity - 0.7) / 0.2
+                else:
+                    # 낮은 유사도는 더 낮춤
+                    similarity = similarity * 0.8
                 
                 # 결과 로깅
                 if i < 3:  # 처음 3개 결과 상세 로그

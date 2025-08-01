@@ -160,9 +160,7 @@ class Florence2ImageAnalyzer:
                         pixel_values=pixel_values,
                         max_new_tokens=512,  # 토큰 수 증가 (large 모델은 더 많은 토큰 처리 가능)
                         num_beams=3,  # 빔 수 약간 증가
-                        do_sample=False,
-                        temperature=0.1,  # 낮은 temperature로 더 정확한 결과
-                        top_p=0.9
+                        do_sample=False  # do_sample=False일 때는 temperature, top_p 사용 안함
                     )
                 except RuntimeError as e:
                     if "dtype" in str(e):
@@ -174,9 +172,7 @@ class Florence2ImageAnalyzer:
                             pixel_values=pixel_values,
                             max_new_tokens=512,  # 토큰 수 증가
                             num_beams=3,  # 빔 수 약간 증가
-                            do_sample=False,
-                            temperature=0.1,
-                            top_p=0.9
+                            do_sample=False  # do_sample=False일 때는 temperature, top_p 사용 안함
                         )
                     else:
                         raise
