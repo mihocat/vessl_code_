@@ -23,7 +23,7 @@ from chromadb.utils import embedding_functions
 from sentence_transformers import SentenceTransformer
 
 # 기존 RAG 시스템
-from rag_system import VectorDatabase
+from rag_system import SearchResult, VectorStore
 
 # 멀티모달 컴포넌트
 from enhanced_image_analyzer import ChatGPTStyleAnalyzer
@@ -308,7 +308,7 @@ class HybridSearchEngine:
         return None
 
 
-class EnhancedVectorDatabase(VectorDatabase):
+class EnhancedVectorDatabase(VectorStore):
     """향상된 벡터 데이터베이스"""
     
     def __init__(self, persist_directory: str = "./chroma_db"):

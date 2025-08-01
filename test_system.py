@@ -124,8 +124,8 @@ class SystemTester:
         # 벡터 DB 테스트
         self.total_tests += 1
         try:
-            from rag_system import VectorDatabase
-            vector_db = VectorDatabase(persist_directory="./test_chroma_db")
+            from rag_system import VectorStore
+            vector_db = VectorStore(persist_directory="./test_chroma_db")
             
             # 기본 작업 테스트
             test_doc = {

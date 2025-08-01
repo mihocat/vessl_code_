@@ -1,0 +1,101 @@
+{
+  "timestamp": "2025-08-01 15:54:08",
+  "summary": {
+    "total": 18,
+    "passed": 17,
+    "failed": 1,
+    "success_rate": "94.4%"
+  },
+  "results": [
+    {
+      "test": "Import config",
+      "status": "PASS",
+      "message": "Successfully imported"
+    },
+    {
+      "test": "Import llm_client",
+      "status": "PASS",
+      "message": "Successfully imported"
+    },
+    {
+      "test": "Import rag_system",
+      "status": "PASS",
+      "message": "Successfully imported"
+    },
+    {
+      "test": "Import services",
+      "status": "PASS",
+      "message": "Successfully imported"
+    },
+    {
+      "test": "Import enhanced_rag_system",
+      "status": "PASS",
+      "message": "Successfully imported"
+    },
+    {
+      "test": "Import enhanced_image_analyzer",
+      "status": "PASS",
+      "message": "Successfully imported"
+    },
+    {
+      "test": "Import chatgpt_response_generator",
+      "status": "PASS",
+      "message": "Successfully imported"
+    },
+    {
+      "test": "Import multimodal_ocr",
+      "status": "PASS",
+      "message": "Successfully imported"
+    },
+    {
+      "test": "Import visualization_components",
+      "status": "PASS",
+      "message": "Successfully imported"
+    },
+    {
+      "test": "Import app",
+      "status": "PASS",
+      "message": "Successfully imported"
+    },
+    {
+      "test": "Import enhanced_app",
+      "status": "PASS",
+      "message": "Successfully imported"
+    },
+    {
+      "test": "Import advanced_ui",
+      "status": "PASS",
+      "message": "Successfully imported"
+    },
+    {
+      "test": "Config Validation",
+      "status": "PASS",
+      "message": "All required configurations present"
+    },
+    {
+      "test": "Vector Database",
+      "status": "FAIL",
+      "message": "VectorStore.__init__() got an unexpected keyword argument 'persist_directory'"
+    },
+    {
+      "test": "Multimodal Embedding",
+      "status": "PASS",
+      "message": "Text and formula embedding working"
+    },
+    {
+      "test": "ChatGPT Style Response",
+      "status": "PASS",
+      "message": "Response generation working"
+    },
+    {
+      "test": "Visualization Components",
+      "status": "PASS",
+      "message": "Formula and circuit visualization working"
+    },
+    {
+      "test": "Embedding Performance",
+      "status": "PASS",
+      "message": "Average embedding time: 52.26ms"
+    }
+  ]
+}

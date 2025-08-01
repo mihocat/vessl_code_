@@ -263,7 +263,8 @@ class ChatGPTResponseGenerator:
         solution = "📊 **단계별 풀이:**\n"
         
         for step in steps:
-            solution += f"\n**{step.get('title', f'단계 {step.get("step", "")}')}}**\n"
+            title = step.get('title', f"단계 {step.get('step', '')}")
+            solution += f"\n**{title}**\n"
             
             if step.get('content'):
                 solution += f"{step['content']}\n"
