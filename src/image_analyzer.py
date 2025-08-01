@@ -223,21 +223,52 @@ class Florence2ImageAnalyzer:
         result = self.analyze_image(image, task="<OCR>")
         if result["success"] and result["result"]:
             text = result["result"]
-            # OCR 결과 정리 - 의미없는 반복 문자 제거
+            # OCR 결과 정리 - 의미없는 반복 문자 및 노이즈 제거
             if isinstance(text, str):
-                # 연속된 한글 자모음만으로 이루어진 긴 문자열 제거
                 import re
-                # 의미없는 패턴 감지 (같은 문자 반복, 무작위 한글 자모음 등)
-                if len(text) > 100 and (
-                    len(set(text)) < len(text) * 0.1 or  # 문자 다양성이 너무 낮음
-                    re.search(r'[\u3130-\u318F]{20,}', text) or  # 한글 자모음만 20자 이상
-                    re.search(r'(.)\1{10,}', text)  # 같은 문자 10번 이상 반복
-                ):
-                    logger.warning("OCR result seems to be noise, returning empty")
-                    return ""
+                
+                # 원본 텍스트 백업
+                original_text = text
+                
+                # 노이즈 패턴들 정의
+                noise_patterns = [
+                    r'[ㄱ-ㅎㅏ-ㅣ]{5,}',  # 연속된 한글 자모
+                    r'([가-힣])\1{4,}',  # 같은 한글 문자 4번 이상 반복
+                    r'방탄소년단|아이드라마|스타에세요',  # Florence-2가 자주 생성하는 무의미한 단어들
+                    r'[섀-힣]{10,}',  # 의미없는 긴 한글 문자열
+                    r'\b(\w)\1{3,}\b',  # 같은 문자 3번 이상 반복
+                ]
+                
+                # 노이즈 제거
+                cleaned_text = text
+                for pattern in noise_patterns:
+                    cleaned_text = re.sub(pattern, ' ', cleaned_text)
+                
+                # 여러 공백을 하나로 정리
+                cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
+                
+                # 너무 짧아진 경우 원본 사용
+                if len(cleaned_text) < 10 and len(original_text) > 50:
+                    cleaned_text = original_text
+                
+                # 여전히 노이즈가 많은 경우
+                if len(cleaned_text) > 50:
+                    # 숫자와 일반적인 단어 비율 확인
+                    numbers_and_words = re.findall(r'\b(?:\d+|[A-Za-z]+|kW|kVA|V|A|Hz|Ω)\b', cleaned_text)
+                    if len(numbers_and_words) / max(len(cleaned_text.split()), 1) < 0.2:
+                        logger.warning("OCR result seems to be mostly noise")
+                        # 숫자와 단위만 추출
+                        useful_parts = re.findall(r'\b\d+(?:\.\d+)?\s*(?:kW|kVA|V|A|Hz|Ω|W)?\b', original_text)
+                        if useful_parts:
+                            cleaned_text = ' '.join(useful_parts)
+                        else:
+                            cleaned_text = ""
+                
                 # 길이 제한
-                if len(text) > 200:
-                    text = text[:200] + "..."
+                if len(cleaned_text) > 150:
+                    cleaned_text = cleaned_text[:150] + "..."
+                
+                text = cleaned_text
             return text
         return ""
     

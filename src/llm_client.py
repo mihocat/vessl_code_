@@ -130,8 +130,15 @@ class LLMClient:
         temperature: float
     ) -> Dict[str, Any]:
         """API 요청 페이로드 구성"""
-        # 토큰 제한을 더 엄격하게 (2048 토큰 모델 대응)
-        max_tokens = min(max_tokens, 400)  # 응답 토큰을 400으로 제한
+        # 토큰 제한을 적절하게 조정 (2048 토큰 모델 대응)
+        # 프롬프트 길이에 따라 동적으로 조정
+        prompt_tokens = len(prompt.split())  # 대략적인 토큰 수 추정
+        if prompt_tokens > 1200:
+            max_tokens = min(max_tokens, 300)  # 긴 프롬프트일 때 더 제한
+        elif prompt_tokens > 800:
+            max_tokens = min(max_tokens, 500)  # 중간 길이
+        else:
+            max_tokens = min(max_tokens, 700)  # 짧은 프롬프트일 때 더 많이 허용
         
         payload = {
             "model": self.config.model_name,

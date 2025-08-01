@@ -206,11 +206,18 @@ class ResponseGenerator:
         """
         context_parts = []
         
-        # RAG 결과 처리 (매우 짧게 제한)
-        for i, result in enumerate(rag_results[:1]):  # 1개만 사용
-            if result.score >= 0.4:
-                answer_preview = result.answer[:150]  # 글자 수 더 제한
-                context_parts.append(f"[관련 답변] {answer_preview}...")
+        # RAG 결과 처리 (적절히 제한)
+        # 신뢰도에 따라 결과 수 조정
+        num_results = 2 if rag_results and rag_results[0].score >= 0.8 else 1
+        for i, result in enumerate(rag_results[:num_results]):
+            if result.score >= 0.5:  # 임계값 상향
+                # 답변 길이를 더 효율적으로 제한
+                answer_preview = result.answer[:200] if len(result.answer) > 200 else result.answer
+                # 중복 제거
+                if answer_preview not in ' '.join(context_parts):
+                    context_parts.append(f"[참고{i+1}] {answer_preview}")
+                    if len(result.answer) > 200:
+                        context_parts[-1] += "..."
         
         # 이미지 컨텍스트 처리
         if image_context:

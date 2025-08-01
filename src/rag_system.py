@@ -163,19 +163,31 @@ class VectorStore:
                 metadata = results["metadatas"][0][i]
                 distance = results["distances"][0][i]
                 
-                # 코사인 유사도 계산 (ChromaDB는 코사인 거리를 반환)
-                # ChromaDB의 cosine distance는 0~2 범위를 가짐
-                # 0: 동일한 벡터, 1: 직교, 2: 반대 방향
-                # 유사도로 변환: 1 - (distance / 2)
-                similarity = max(0.0, min(1.0, 1 - (distance / 2)))
+                # 코사인 유사도 계산
+                # ChromaDB의 cosine distance 범위 확인을 위한 상세 로깅
+                logger.debug(f"Raw distance from ChromaDB: {distance}")
                 
-                # 매우 작은 거리값은 조정 (과도한 1.0 방지)
-                if distance < 0.01:
-                    similarity = 0.99
+                # ChromaDB는 normalized 벡터에 대해 0~2 범위의 cosine distance 반환
+                # 하지만 실제로는 다른 범위일 수 있음
+                # 안전한 변환을 위해 거리값의 범위 확인
+                if distance <= 0:
+                    similarity = 1.0  # 완전히 동일
+                elif distance >= 2:
+                    similarity = 0.0  # 완전히 반대
+                else:
+                    # 선형 변환: distance 0->1, 2->0
+                    similarity = 1.0 - (distance / 2.0)
                 
-                # 디버깅을 위한 로그 추가
-                if i < 5:  # 처음 5개 결과 로그
-                    logger.debug(f"Result {i}: distance={distance:.6f}, similarity={similarity:.4f}, Q: {metadata['question'][:50]}...")
+                # 추가 보정: 실제 ChromaDB 동작에 따라 조정
+                # 매우 작은 거리는 높은 유사도로, 하지만 완벽한 1.0은 피함
+                if distance < 0.1:
+                    similarity = min(0.95 + (0.05 * (1.0 - distance/0.1)), 0.99)
+                elif distance > 1.5:
+                    similarity = max(0.0, similarity * 0.5)  # 큰 거리는 더 낮은 점수
+                
+                # 결과 로깅
+                if i < 3:  # 처음 3개 결과 상세 로그
+                    logger.info(f"Result {i}: distance={distance:.6f}, similarity={similarity:.4f}, Q: {metadata['question'][:50]}...")
                 
                 search_results.append(SearchResult(
                     question=metadata["question"],
