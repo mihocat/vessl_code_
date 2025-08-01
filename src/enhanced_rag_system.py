@@ -311,9 +311,20 @@ class HybridSearchEngine:
 class EnhancedVectorDatabase(VectorStore):
     """향상된 벡터 데이터베이스"""
     
-    def __init__(self, persist_directory: str = "./chroma_db"):
+    def __init__(self, rag_config=None, embedding_model=None):
         """향상된 벡터 DB 초기화"""
-        super().__init__(persist_directory)
+        # 기본 설정 사용
+        if rag_config is None:
+            from config import RAGConfig
+            rag_config = RAGConfig()
+            
+        # 임베딩 모델이 제공되지 않으면 생성
+        if embedding_model is None:
+            from sentence_transformers import SentenceTransformer
+            embedding_model = SentenceTransformer(rag_config.embedding_model_name, trust_remote_code=True)
+        
+        # 부모 클래스 초기화
+        super().__init__(rag_config, embedding_model)
         
         # 멀티모달 임베더
         self.multimodal_embedder = MultimodalEmbedder()
@@ -466,7 +477,27 @@ class EnhancedRAGSystem:
         image_analysis = None
         if image:
             logger.info("Analyzing image for context...")
-            image_analysis = self.image_analyzer.analyze_for_chatgpt_response(image)
+            
+            # 멀티모달 OCR 파이프라인 우선 사용
+            try:
+                from multimodal_ocr import MultimodalOCRPipeline
+                ocr_pipeline = MultimodalOCRPipeline()
+                ocr_result = ocr_pipeline.process_image(image)
+                
+                # OCR 결과를 image_analysis 형식으로 변환
+                image_analysis = {
+                    'success': True,
+                    'ocr_text': ocr_result.get('text_content', ''),
+                    'formulas': ocr_result.get('formulas', []),
+                    'diagrams': ocr_result.get('diagrams', []),
+                    'tables': ocr_result.get('tables', []),
+                    'structured_content': ocr_result.get('structured_content', '')
+                }
+                logger.info(f"Multimodal OCR extracted: {len(image_analysis['ocr_text'])} chars, {len(image_analysis['formulas'])} formulas")
+            except Exception as e:
+                logger.warning(f"Multimodal OCR failed, falling back to Florence-2: {e}")
+                # Florence-2로 폴백
+                image_analysis = self.image_analyzer.analyze_for_chatgpt_response(image)
             
             # 이미지에서 추출된 텍스트를 쿼리에 추가
             if image_analysis.get('ocr_text'):

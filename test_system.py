@@ -125,7 +125,16 @@ class SystemTester:
         self.total_tests += 1
         try:
             from rag_system import VectorStore
-            vector_db = VectorStore(persist_directory="./test_chroma_db")
+            from config import RAGConfig
+            from sentence_transformers import SentenceTransformer
+            
+            # RAG 설정과 임베딩 모델 준비
+            rag_config = RAGConfig()
+            rag_config.chroma_db_path = "./test_chroma_db"  # 테스트용 경로
+            embedding_model = SentenceTransformer(rag_config.embedding_model_name, trust_remote_code=True)
+            
+            # VectorStore 생성
+            vector_db = VectorStore(rag_config, embedding_model)
             
             # 기본 작업 테스트
             test_doc = {

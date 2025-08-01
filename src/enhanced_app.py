@@ -67,10 +67,19 @@ class EnhancedChatService:
         # 4. 이미지 분석기
         self.image_analyzer = ChatGPTStyleAnalyzer(use_florence=True)
         
-        # 5. 응답 생성기
+        # 5. 멀티모달 OCR (추가)
+        try:
+            from multimodal_ocr import MultimodalOCRPipeline
+            self.ocr_pipeline = MultimodalOCRPipeline()
+            logger.info("Multimodal OCR pipeline loaded successfully")
+        except Exception as e:
+            logger.warning(f"Failed to load multimodal OCR pipeline: {e}")
+            self.ocr_pipeline = None
+        
+        # 6. 응답 생성기
         self.response_generator = ChatGPTResponseGenerator()
         
-        # 6. 웹 검색 서비스
+        # 7. 웹 검색 서비스
         self.web_search = WebSearchService(config.web_search)
         
         # 대화 이력
