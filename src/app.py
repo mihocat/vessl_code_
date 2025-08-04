@@ -18,7 +18,14 @@ from config import Config
 from llm_client import LLMClient
 from rag_system import RAGSystem, SearchResult
 from services import WebSearchService, ResponseGenerator
-from new_image_analyzer import Florence2ImageAnalyzer
+try:
+    # 새로운 Vision Transformer 분석기 시도
+    from vision_transformer_analyzer import Florence2ImageAnalyzer
+    logger.info("Using Vision Transformer Analyzer")
+except ImportError:
+    # 기존 분석기로 폴백
+    from new_image_analyzer import Florence2ImageAnalyzer
+    logger.info("Using Real OCR Analyzer")
 from image_analyzer import MultimodalRAGService
 
 logging.basicConfig(level=logging.INFO)
@@ -61,8 +68,8 @@ class ChatService:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 
-                # Florence-2-large 모델 사용 (향상된 OCR 성능)
-                self.image_analyzer = Florence2ImageAnalyzer(model_id="microsoft/Florence-2-large")
+                # Vision Transformer 또는 Real OCR 사용
+                self.image_analyzer = Florence2ImageAnalyzer()
                 self.multimodal_service = MultimodalRAGService(
                     self.image_analyzer,
                     self.rag_system.embedding_model
