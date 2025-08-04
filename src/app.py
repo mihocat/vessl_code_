@@ -18,6 +18,10 @@ from config import Config
 from llm_client import LLMClient
 from rag_system import RAGSystem, SearchResult
 from services import WebSearchService, ResponseGenerator
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 try:
     # 새로운 Vision Transformer 분석기 시도
     from vision_transformer_analyzer import Florence2ImageAnalyzer
@@ -27,9 +31,6 @@ except ImportError:
     from new_image_analyzer import Florence2ImageAnalyzer
     logger.info("Using Real OCR Analyzer")
 from image_analyzer import MultimodalRAGService
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 class ChatService:
