@@ -1,7 +1,7 @@
-# 범용 RAG 시스템 아키텍처
+# 범용 지능형 RAG 시스템 아키텍처
 
 ## 개요
-이 시스템은 도메인 독립적인 범용 RAG (Retrieval-Augmented Generation) 시스템으로, 모든 분야에서 사용 가능한 포괄적인 정보 추출 및 응답 생성 시스템입니다.
+이 시스템은 모든 학문 분야를 포괄하는 범용 지능형 RAG (Retrieval-Augmented Generation) 시스템으로, 지식 그래프 기반의 적응형 학습과 도메인 전문가 시스템을 통합한 차세대 AI 시스템입니다.
 
 ## 핵심 설계 원칙
 
@@ -22,7 +22,60 @@
 
 ## 시스템 구성
 
-### 1. Universal OCR Pipeline (`universal_ocr_pipeline.py`)
+### 1. Universal Knowledge System (`universal_knowledge_system.py`)
+
+#### 핵심 구성요소
+- **KnowledgeDomain**: 40개 이상의 학문 분야 분류
+  - 자연과학: 수학, 물리학, 화학, 생물학, 지구과학, 천문학
+  - 공학: 전기전자, 기계, 토목, 컴퓨터, 화학, 항공우주, 의공학, 재료
+  - 정보기술: 소프트웨어, AI/ML, 데이터과학, 사이버보안, 네트워크, DB
+  - 인문사회: 철학, 역사, 문학, 언어학, 심리학, 사회학, 경제학, 정치학, 법학
+  - 예술: 음악, 미술, 디자인, 건축
+  - 의학/건강: 의학, 간호학, 약학, 공중보건
+  - 비즈니스: 경영학, 금융, 마케팅, 회계
+  - 교육: 교육학, 교수법
+
+- **ContentComplexity**: 7단계 복잡도 수준
+  - Elementary (초등)
+  - Middle School (중등)
+  - High School (고등)
+  - Undergraduate (학부)
+  - Graduate (대학원)
+  - Research (연구)
+  - Expert (전문가)
+
+- **InformationType**: 13가지 정보 유형
+  - 개념, 정의, 정리/법칙, 공식, 알고리즘, 절차, 예시
+  - 증명, 실험, 사례연구, 역사적 사실, 통계, 시각자료, 참고자료
+
+#### 주요 기능
+1. **UniversalKnowledgeExtractor**
+   - 자동 도메인 감지
+   - 복잡도 추정
+   - 정보 유형 분류
+   - 선수 지식 추출
+   - 관련 개념 매핑
+
+2. **KnowledgeGraphBuilder**
+   - 지식 노드/엣지 구축
+   - 도메인 계층 구조 관리
+   - 학습 경로 탐색
+   - 관련 개념 네트워크
+
+3. **AdaptiveLearningAssistant**
+   - 사용자 프로필 관리
+   - 맞춤형 학습 추천
+   - 난이도 적응
+   - 연습 문제 생성
+   - 커리큘럼 설계
+
+4. **도메인 전문가 시스템**
+   - MathematicsExpert: 수학 전문 분석
+   - PhysicsExpert: 물리학 법칙/실험 분석
+   - ComputerScienceExpert: 알고리즘/자료구조 분석
+   - AIMLExpert: AI/ML 모델/프레임워크 분석
+
+### 2. Universal OCR Pipeline (`universal_ocr_pipeline.py`)
 
 #### 주요 기능
 - **다중 모델 앙상블**: 여러 OCR 모델의 결과를 종합하여 최적의 결과 도출
@@ -72,7 +125,37 @@ class DomainAdaptiveOCR(UniversalOCRPipeline):
    - 다국어 지원
    - 도메인별 포맷팅
 
-### 3. 시스템 통합
+### 4. Intelligent RAG System (`intelligent_rag_system.py`)
+
+#### 핵심 구성요소
+1. **IntelligentQueryProcessor**
+   - 의도 감지: learn, solve, explain, compare, implement, analyze, debug, optimize
+   - 도메인 자동 감지
+   - 복잡도 추정
+   - 응답 전략 결정
+
+2. **ResponseStrategy**
+   - Educational: 교육적 설명
+   - Technical: 기술적 상세
+   - Practical: 실용적 가이드
+   - Conversational: 대화형
+   - Analytical: 분석적
+   - Creative: 창의적
+
+3. **IntelligentRAGOrchestrator**
+   - 비동기 병렬 처리
+   - 도메인별 전문가 활용
+   - 지식 그래프 기반 추천
+   - 학습 경로 생성
+   - 개인화 커리큘럼
+
+#### 주요 기능
+- **병렬 처리**: 쿼리 분석, 이미지 처리, 검색을 동시 수행
+- **캐싱**: 자주 사용되는 결과 캐싱
+- **적응형 응답**: 사용자 수준과 의도에 맞춘 응답
+- **학습 지원**: 연습 문제 생성, 학습 경로 추천
+
+### 5. 시스템 통합
 
 #### Enhanced App (`enhanced_app.py`)
 ```python
@@ -90,41 +173,105 @@ class DomainAdaptiveOCR(UniversalOCRPipeline):
 - reasoning: 심층 추론 (다단계 추론 체인)
 ```
 
+## 주요 개선사항
+
+### 1. 도메인 확장
+- **전기공학 특화 → 40개 이상 학문 분야**
+- 자연과학, 공학, 인문사회, 예술, 의학 등 전 분야 포괄
+- 각 도메인별 전문가 시스템 구축
+
+### 2. 지능형 처리
+- **단순 RAG → 지식 그래프 기반 지능형 시스템**
+- 사용자 의도 파악 및 맞춤형 응답
+- 학습 경로 및 커리큘럼 자동 생성
+
+### 3. 적응형 학습
+- **고정 난이도 → 7단계 적응형 난이도**
+- 사용자 프로필 기반 개인화
+- 연습 문제 자동 생성
+
+### 4. 멀티모달 강화
+- **기본 OCR → 다중 모델 앙상블 OCR**
+- 텍스트, 수식, 표, 다이어그램, 차트, 손글씨, 코드 인식
+- 도메인 적응형 OCR
+
 ## 사용 예시
 
-### 1. 범용 사용
+### 1. 범용 지능형 처리
 ```python
-# 도메인 자동 감지
-ocr = DomainAdaptiveOCR()
-result = ocr.process_adaptive(image, auto_detect=True)
+# 지능형 RAG 시스템 초기화
+orchestrator = IntelligentRAGOrchestrator(config)
+
+# 수학 문제 해결
+result = orchestrator.process_sync(
+    query="미분방정식을 이용한 물리 현상 모델링 방법을 설명해주세요",
+    context={
+        'user_profile': {
+            'education_level': 'undergraduate',
+            'preferred_domains': ['mathematics', 'physics']
+        }
+    }
+)
+
+# 프로그래밍 학습
+result = orchestrator.process_sync(
+    query="Python으로 딥러닝 모델을 구현하는 방법을 초보자 수준에서 설명해주세요",
+    context={
+        'user_profile': {
+            'education_level': 'elementary',
+            'learning_style': 'practical'
+        }
+    }
+)
 ```
 
-### 2. 특정 도메인 지정
+### 2. 지식 그래프 활용
 ```python
-# 의료 도메인
-medical_ocr = DomainAdaptiveOCR(domain="medical")
+# 지식 추출 및 그래프 구축
+orchestrator = UniversalKnowledgeOrchestrator()
+content = "뉴턴의 운동법칙 F=ma는 힘, 질량, 가속도의 관계를 나타냅니다."
+result = orchestrator.process_content(content)
 
-# 법률 도메인
-legal_ocr = DomainAdaptiveOCR(domain="legal")
-
-# 학술 도메인
-academic_ocr = DomainAdaptiveOCR(domain="academic")
+# 학습 경로 생성
+learning_path = orchestrator.knowledge_graph.find_learning_path(
+    start_concept="뉴턴의 법칙",
+    target_concept="라그랑주 역학"
+)
 ```
 
-### 3. 모듈형 RAG 파이프라인
+### 3. 개인화 커리큘럼
 ```python
-# 파이프라인 구성
-pipeline = ModularRAGPipeline(config)
+# 16주 AI/ML 커리큘럼 생성
+curriculum = orchestrator.create_personalized_curriculum(
+    user_profile={
+        'current_level': 'undergraduate',
+        'target_level': 'graduate',
+        'available_hours_per_week': 20,
+        'learning_style': 'balanced'
+    },
+    target_domain=KnowledgeDomain.AI_ML,
+    duration_weeks=16
+)
 
-# 커스텀 모듈 추가
-custom_module = MyCustomModule()
-pipeline.add_module("custom", custom_module)
+# 연습 문제 생성
+problems = orchestrator.generate_practice_problems(
+    concept="신경망 역전파",
+    domain=KnowledgeDomain.AI_ML,
+    difficulty=ContentComplexity.UNDERGRADUATE,
+    count=10
+)
+```
 
-# 처리
-result = pipeline.process(
-    query="질문",
-    image=image,
-    domain="engineering"  # 선택적
+### 4. 멀티모달 처리
+```python
+# 이미지 + 텍스트 통합 처리
+result = await orchestrator.process_async(
+    query="이 회로도에서 전류의 흐름을 분석하고 최적화 방안을 제시해주세요",
+    image=circuit_diagram_image,
+    context={
+        'intent': 'analyze',
+        'expected_output': 'technical_report'
+    }
 )
 ```
 
