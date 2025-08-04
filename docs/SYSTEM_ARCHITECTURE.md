@@ -173,6 +173,99 @@ class DomainAdaptiveOCR(UniversalOCRPipeline):
 - reasoning: 심층 추론 (다단계 추론 체인)
 ```
 
+### 6. Cognitive AI System (`cognitive_ai_system.py`)
+
+#### 핵심 구성요소
+1. **Perception Module (지각 모듈)**
+   - 다중 감각 통합 (텍스트, 이미지, 오디오)
+   - 특징 추출 및 패턴 인식
+   - 멀티모달 융합
+
+2. **Attention Module (주의 모듈)**
+   - 선택적 주의 메커니즘
+   - 중요도 기반 필터링
+   - 컨텍스트 관련성 평가
+
+3. **Memory Module (기억 모듈)**
+   - Sensory Memory: 즉각적 입력 보존
+   - Short-term Memory: 작업 기억
+   - Working Memory: 활성 처리
+   - Long-term Memory: 지속적 저장
+
+4. **Reasoning Module (추론 모듈)**
+   - 8가지 추론 방법: 연역, 귀납, 귀추, 유추, 인과, 확률, 퍼지, 반사실
+   - 다단계 추론 체인
+   - 논리적 일관성 검증
+
+5. **Creativity Module (창의성 모듈)**
+   - 8가지 창의적 기법 적용
+   - 새로운 아이디어 생성
+   - 개념 결합 및 변형
+
+6. **Metacognition Module (메타인지 모듈)**
+   - 자기 인식 및 평가
+   - 전략 선택 및 조정
+   - 학습 효과성 모니터링
+
+### 7. Unified Orchestration System (`unified_orchestration_system.py`)
+
+#### 핵심 기능
+1. **통합 처리 파이프라인**
+   - 모든 하위 시스템 조율
+   - 최적 처리 경로 자동 선택
+   - 병렬 처리 및 결과 통합
+
+2. **처리 모드**
+   - COGNITIVE: 인지적 처리
+   - INTELLIGENT: 지능형 RAG
+   - ADVANCED: 고급 RAG
+   - MODULAR: 모듈형 RAG
+   - ADAPTIVE: 적응형 (자동 선택)
+
+3. **사용자 관리**
+   - 사용자 프로필 관리
+   - 대화 히스토리 추적
+   - 개인화된 응답 생성
+   - 학습 진도 관리
+
+4. **시스템 메트릭**
+   - 성능 모니터링
+   - 사용 패턴 분석
+   - 캐시 효율성
+   - 사용자 만족도
+
+5. **적응형 학습**
+   - 피드백 수집 및 분석
+   - 시스템 자동 개선
+   - 패턴 학습 및 적용
+
+### 8. API 서버 (`api_server.py`)
+
+#### 엔드포인트
+1. **POST /chat**
+   - 주요 대화 엔드포인트
+   - 멀티모달 지원 (텍스트 + 이미지)
+   - 처리 모드 선택 가능
+   - 컨텍스트 기반 응답
+
+2. **POST /feedback**
+   - 사용자 피드백 수집
+   - 1-5점 평가 시스템
+   - 텍스트 피드백 지원
+
+3. **GET /status**
+   - 시스템 상태 확인
+   - 서브시스템 가용성
+   - 성능 메트릭
+
+4. **GET /modes**
+   - 사용 가능한 처리 모드 조회
+   - 각 모드 설명
+
+5. **GET /test**
+   - 시스템 테스트
+   - 다양한 도메인 예제 실행
+
 ## 주요 개선사항
 
 ### 1. 도메인 확장
@@ -197,7 +290,47 @@ class DomainAdaptiveOCR(UniversalOCRPipeline):
 
 ## 사용 예시
 
-### 1. 범용 지능형 처리
+### 1. API 서버 사용
+```python
+# API 서버 실행
+python api_server.py
+
+# 채팅 요청 예시
+import requests
+import base64
+
+# 텍스트만 요청
+response = requests.post('http://localhost:8000/chat', json={
+    'query': '양자역학의 불확정성 원리를 설명해주세요',
+    'user_id': 'user123',
+    'mode': 'cognitive',  # 인지적 처리 모드
+    'context': {
+        'include_details': True
+    }
+})
+
+# 이미지 포함 요청
+with open('equation.png', 'rb') as f:
+    image_base64 = base64.b64encode(f.read()).decode()
+
+response = requests.post('http://localhost:8000/chat', json={
+    'query': '이 방정식을 풀어주세요',
+    'user_id': 'user123',
+    'image': image_base64,
+    'mode': 'intelligent'
+})
+
+# 피드백 전송
+feedback_response = requests.post('http://localhost:8000/feedback', json={
+    'user_id': 'user123',
+    'query': '양자역학의 불확정성 원리를 설명해주세요',
+    'response': response.json()['response'],
+    'rating': 5,
+    'feedback': '매우 도움이 되었습니다'
+})
+```
+
+### 2. 범용 지능형 처리
 ```python
 # 지능형 RAG 시스템 초기화
 orchestrator = IntelligentRAGOrchestrator(config)
@@ -273,6 +406,37 @@ result = await orchestrator.process_async(
         'expected_output': 'technical_report'
     }
 )
+```
+
+## 시스템 흐름도
+
+```mermaid
+graph TB
+    A[사용자 요청] --> B[API Server]
+    B --> C{통합 오케스트레이션}
+    
+    C --> D[사용자 컨텍스트 관리]
+    C --> E[캐시 확인]
+    C --> F[처리 모드 결정]
+    
+    F --> G[Cognitive AI]
+    F --> H[Intelligent RAG]
+    F --> I[Advanced RAG]
+    F --> J[Modular RAG]
+    F --> K[Adaptive]
+    
+    G --> L[결과 통합]
+    H --> L
+    I --> L
+    J --> L
+    K --> L
+    
+    L --> M[결과 향상]
+    M --> N[캐시 저장]
+    N --> O[응답 반환]
+    
+    O --> P[피드백 수집]
+    P --> Q[시스템 적응]
 ```
 
 ## 확장성
