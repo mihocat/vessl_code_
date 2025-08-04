@@ -1,33 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Enhanced Gradio UI Application with Multimodal RAG System
-멀티모달 RAG 시스템을 갖춘 향상된 Gradio UI 애플리케이션
+Enhanced Gradio UI Application with Advanced Image Analysis
+향상된 이미지 분석 기능을 갖춘 Gradio UI 애플리케이션
 """
 
 import sys
 import time
 import logging
+import asyncio
 from typing import List, Tuple, Optional, Union, Dict, Any
 from PIL import Image
 import torch
+import numpy as np
 
 import gradio as gr
 
 from config import Config
 from llm_client import LLMClient
-
-# 향상된 시스템 임포트
-from enhanced_rag_system import (
-    EnhancedVectorDatabase, 
-    EnhancedRAGSystem,
-    RAGSystemAdapter
-)
-from enhanced_image_analyzer import ChatGPTStyleAnalyzer
-from chatgpt_response_generator import ChatGPTResponseGenerator
-
-# 기존 서비스 (호환성)
-from services import WebSearchService
+from rag_system import RAGSystem, SearchResult
+from services import WebSearchService, ResponseGenerator
+from enhanced_image_analyzer import EnhancedImageAnalyzer
+from next_gen_orchestrator import NextGenOrchestrator, SystemMode
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,456 +41,424 @@ class EnhancedChatService:
         self.config = config
         self.llm_client = llm_client
         
-        # 향상된 컴포넌트 초기화
-        logger.info("Initializing enhanced components...")
-        
-        # 1. 향상된 벡터 DB
-        self.vector_db = EnhancedVectorDatabase(
-            persist_directory=config.rag.persist_directory
-        )
-        
-        # 2. 향상된 RAG 시스템
-        self.enhanced_rag = EnhancedRAGSystem(
-            vector_db=self.vector_db,
+        # 기본 컴포넌트 초기화
+        self.rag_system = RAGSystem(
+            rag_config=config.rag,
+            dataset_config=config.dataset,
             llm_client=llm_client
         )
-        
-        # 2.5. 고급 RAG 시스템 (추가)
-        try:
-            from advanced_rag_system import AdvancedRAGSystem
-            self.advanced_rag = AdvancedRAGSystem(
-                vector_db=self.vector_db,
-                llm_client=llm_client
-            )
-            self.use_advanced = True
-            logger.info("Advanced RAG system loaded successfully")
-        except Exception as e:
-            logger.warning(f"Failed to load advanced RAG system: {e}")
-            self.advanced_rag = None
-            self.use_advanced = False
-        
-        # 3. 호환성을 위한 어댑터
-        self.rag_system = RAGSystemAdapter(self.enhanced_rag)
-        
-        # 4. 이미지 분석기
-        self.image_analyzer = ChatGPTStyleAnalyzer(use_florence=True)
-        
-        # 5. 범용 OCR 파이프라인
-        try:
-            from universal_ocr_pipeline import DomainAdaptiveOCR
-            self.ocr_pipeline = DomainAdaptiveOCR()
-            logger.info("Universal Domain-Adaptive OCR pipeline loaded successfully")
-        except Exception as e:
-            logger.warning(f"Failed to load Universal OCR pipeline: {e}")
-            try:
-                from korean_ocr_pipeline import KoreanElectricalOCR
-                self.ocr_pipeline = KoreanElectricalOCR()
-                logger.info("Fallback to Korean Electrical OCR pipeline")
-            except Exception as e2:
-                logger.warning(f"Failed to load Korean OCR pipeline: {e2}")
-                try:
-                    from multimodal_ocr import MultimodalOCRPipeline
-                    self.ocr_pipeline = MultimodalOCRPipeline()
-                    logger.info("Fallback to Multimodal OCR pipeline")
-                except Exception as e3:
-                    logger.warning(f"Failed to load any OCR pipeline: {e3}")
-                    self.ocr_pipeline = None
-        
-        # 6. 응답 생성기
-        self.response_generator = ChatGPTResponseGenerator()
-        
-        # 7. 웹 검색 서비스
         self.web_search = WebSearchService(config.web_search)
+        self.response_generator = ResponseGenerator(config.web_search)
+        
+        # 향상된 이미지 분석기 초기화
+        self.enhanced_image_analyzer = None
+        self.next_gen_orchestrator = None
+        
+        # 비동기 초기화를 위한 이벤트 루프
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            logger.info("Initializing Enhanced Image Analyzer...")
+            self.enhanced_image_analyzer = EnhancedImageAnalyzer()
+            loop.run_until_complete(self.enhanced_image_analyzer.initialize())
+            logger.info("Enhanced Image Analyzer initialized successfully")
+            
+            # Next Generation Orchestrator 초기화 (선택적)
+            try:
+                logger.info("Initializing Next Generation Orchestrator...")
+                self.next_gen_orchestrator = NextGenOrchestrator()
+                loop.run_until_complete(self.next_gen_orchestrator.initialize())
+                logger.info("Next Generation Orchestrator initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Next Gen Orchestrator: {e}")
+                self.next_gen_orchestrator = None
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize Enhanced Image Analyzer: {e}")
+            self.enhanced_image_analyzer = None
+        finally:
+            loop.close()
         
         # 대화 이력
         self.conversation_history = []
         
-        logger.info("Enhanced chat service initialized successfully")
-        
     def process_query(
         self, 
         question: str, 
-        history: List[Tuple[str, str]],
-        image: Optional[Image.Image] = None
-    ) -> str:
+        image: Optional[Image.Image] = None,
+        use_web_search: bool = True,
+        processing_mode: str = "standard"
+    ) -> Tuple[str, List[SearchResult], List[str], float, str]:
         """
-        사용자 질의 처리 (향상된 버전)
+        향상된 쿼리 처리
         
         Args:
             question: 사용자 질문
-            history: 대화 이력
-            image: 선택적 이미지 입력
+            image: 이미지 (선택)
+            use_web_search: 웹 검색 사용 여부
+            processing_mode: 처리 모드 (standard, enhanced, next_gen)
             
         Returns:
-            생성된 응답
+            (답변, RAG 검색 결과, 웹 검색 결과, 소요 시간, 이미지 분석 결과)
         """
         start_time = time.time()
         
-        # 빈 질문 처리
-        if not question or not question.strip():
-            return "질문을 입력해주세요."
+        # 이미지 분석 (있는 경우)
+        image_analysis = ""
+        if image and self.enhanced_image_analyzer:
+            try:
+                logger.info("Processing image with Enhanced Image Analyzer...")
+                
+                # 비동기 함수를 동기적으로 실행
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                try:
+                    analysis_result = loop.run_until_complete(
+                        self.enhanced_image_analyzer.analyze_image(image)
+                    )
+                    
+                    # 분석 결과 포맷팅
+                    image_analysis = self._format_image_analysis(analysis_result)
+                    
+                    # 수식이 감지된 경우 질문에 포함
+                    if analysis_result.get('formulas'):
+                        formulas_text = self._format_formulas(analysis_result['formulas'])
+                        question = f"{question}\n\n이미지에서 감지된 수식:\n{formulas_text}"
+                    
+                    # 전기공학 컨텍스트 추가
+                    if analysis_result.get('electrical_context'):
+                        question = f"{question}\n\n컨텍스트: {analysis_result['electrical_context']}"
+                        
+                except Exception as e:
+                    logger.error(f"Error in image analysis: {e}")
+                    image_analysis = f"이미지 분석 중 오류 발생: {str(e)}"
+                finally:
+                    loop.close()
         
-        try:
-            # 이미지가 있는 경우 멀티모달 처리
-            response_style = self._determine_response_style(question, image)
-            
-            # 고급 RAG 시스템 사용 (가능한 경우)
-            if self.use_advanced and self.advanced_rag:
-                # 처리 모드 결정
-                mode = self._determine_processing_mode(question, image)
-                logger.info(f"Using advanced RAG system with mode: {mode}")
-                result = self.advanced_rag.process_query_advanced(
-                    query=question,
-                    image=image,
-                    mode=mode,
-                    response_style=response_style
-                )
+        # Next Gen Orchestrator 사용 (가능한 경우)
+        if processing_mode == "next_gen" and self.next_gen_orchestrator:
+            try:
+                logger.info("Using Next Generation Orchestrator...")
+                
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                try:
+                    orchestrator_input = {
+                        'query': question,
+                        'image': image,
+                        'mode': SystemMode.UNIFIED,
+                        'context': {
+                            'conversation_history': self.conversation_history,
+                            'use_web_search': use_web_search
+                        }
+                    }
+                    
+                    result = loop.run_until_complete(
+                        self.next_gen_orchestrator.process(orchestrator_input)
+                    )
+                    
+                    answer = result.get('response', '')
+                    rag_results = result.get('rag_results', [])
+                    web_results = result.get('web_results', [])
+                    
+                    elapsed_time = time.time() - start_time
+                    
+                    return answer, rag_results, web_results, elapsed_time, image_analysis
+                    
+                except Exception as e:
+                    logger.error(f"Error in Next Gen Orchestrator: {e}")
+                    # Fallback to standard processing
+                finally:
+                    loop.close()
+        
+        # 표준 처리 (RAG + 웹 검색)
+        rag_results = self.rag_system.search_with_rerank(question, top_k=5)
+        
+        # 웹 검색
+        web_results = []
+        if use_web_search:
+            web_results = self.web_search.search(question, max_results=3)
+        
+        # LLM 응답 생성
+        response_context = self._prepare_context(rag_results, web_results, image_analysis)
+        answer = self.llm_client.generate_response(question, response_context)
+        
+        # 대화 이력 업데이트
+        self.conversation_history.append({
+            'question': question,
+            'answer': answer,
+            'has_image': image is not None
+        })
+        
+        elapsed_time = time.time() - start_time
+        
+        return answer, rag_results, web_results, elapsed_time, image_analysis
+    
+    def _format_image_analysis(self, analysis: Dict[str, Any]) -> str:
+        """이미지 분석 결과 포맷팅"""
+        lines = []
+        
+        if analysis.get('caption'):
+            lines.append(f"이미지 설명: {analysis['caption']}")
+        
+        if analysis.get('regions'):
+            regions = analysis['regions']
+            lines.append(f"\n검출된 영역:")
+            lines.append(f"- 텍스트: {regions.get('text', 0)}개")
+            lines.append(f"- 수식: {regions.get('formula', 0)}개")
+            lines.append(f"- 회로도: {regions.get('circuit', 0)}개")
+            lines.append(f"- 다이어그램: {regions.get('diagram', 0)}개")
+        
+        if analysis.get('formulas'):
+            lines.append(f"\n감지된 수식: {len(analysis['formulas'])}개")
+            for i, formula in enumerate(analysis['formulas'][:3]):  # 최대 3개
+                lines.append(f"  {i+1}. {formula.get('raw', '')}")
+                if formula.get('type'):
+                    lines.append(f"     유형: {formula['type']}")
+        
+        if analysis.get('electrical_context'):
+            lines.append(f"\n전기공학 컨텍스트: {analysis['electrical_context']}")
+        
+        return '\n'.join(lines)
+    
+    def _format_formulas(self, formulas: List[Dict]) -> str:
+        """수식 포맷팅"""
+        formatted = []
+        for formula in formulas:
+            if formula.get('latex'):
+                formatted.append(formula['latex'])
             else:
-                # 기본 향상된 RAG 시스템으로 처리
-                logger.info("Using enhanced RAG system (advanced not available)")
-                result = self.enhanced_rag.process_query(
-                    query=question,
-                    image=image,
-                    response_style=response_style
-                )
-            
-            if result['success']:
-                response = result['response']
-                
-                # 소스 정보 추가 (선택적)
-                if self.config.app.show_sources:
-                    response += self._format_sources(result['search_results'])
-                
-                # 응답 시간 추가
-                elapsed_time = time.time() - start_time
-                response += f"\n\n_응답시간: {elapsed_time:.2f}초_"
-                
-                # 대화 이력 업데이트
-                self.conversation_history.append((question, response))
-                
-                return response
-            else:
-                return "죄송합니다. 응답을 생성할 수 없습니다."
-                
-        except Exception as e:
-            logger.error(f"Query processing failed: {e}", exc_info=True)
-            return "죄송합니다. 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+                formatted.append(formula.get('raw', ''))
+        return '\n'.join(formatted)
     
-    def _determine_response_style(self, question: str, image: Optional[Image.Image]) -> str:
-        """응답 스타일 결정"""
-        question_lower = question.lower()
+    def _prepare_context(
+        self, 
+        rag_results: List[SearchResult], 
+        web_results: List[Dict],
+        image_analysis: str
+    ) -> str:
+        """LLM을 위한 컨텍스트 준비"""
+        context_parts = []
         
-        # 단계별 설명 요청
-        if any(keyword in question_lower for keyword in ['단계', '순서', '방법', '어떻게']):
-            return 'step_by_step'
+        # RAG 결과
+        if rag_results:
+            context_parts.append("참고 자료:")
+            for result in rag_results[:3]:
+                context_parts.append(f"- Q: {result.question[:100]}...")
+                context_parts.append(f"  A: {result.answer[:200]}...")
         
-        # 개념 설명 요청
-        if any(keyword in question_lower for keyword in ['무엇', '정의', '개념', '의미']):
-            return 'concept'
+        # 웹 검색 결과
+        if web_results:
+            context_parts.append("\n웹 검색 결과:")
+            for result in web_results:
+                context_parts.append(f"- {result.get('title', '')}")
+                context_parts.append(f"  {result.get('snippet', '')[:150]}...")
         
-        # 이미지가 있는 경우 종합적 응답
-        if image:
-            return 'comprehensive'
+        # 이미지 분석 결과
+        if image_analysis:
+            context_parts.append(f"\n이미지 분석:\n{image_analysis}")
         
-        # 기본값
-        return 'comprehensive'
-    
-    def _determine_processing_mode(self, question: str, image: Optional[Image.Image]) -> str:
-        """처리 모드 결정"""
-        question_lower = question.lower()
-        
-        # 복잡한 계산이나 추론이 필요한 경우
-        if any(keyword in question_lower for keyword in ['왜', '이유', '원리', '증명', '유도']):
-            return 'reasoning'
-        
-        # 이미지가 있고 복잡한 분석이 필요한 경우
-        if image and any(keyword in question_lower for keyword in ['분석', '해석', '풀이']):
-            return 'reasoning'
-        
-        # 일반적인 질문
-        if any(keyword in question_lower for keyword in ['간단', '빠르게', '요약']):
-            return 'fast'
-        
-        # 기본값: 균형잡힌 처리
-        return 'balanced'
-    
-    def _format_sources(self, search_results: List[Dict[str, Any]]) -> str:
-        """검색 결과 소스 포맷팅"""
-        if not search_results:
-            return ""
-        
-        sources_text = "\n\n📚 **참고 자료:**"
-        for i, result in enumerate(search_results[:3]):
-            score = result.get('hybrid_score', 0)
-            metadata = result.get('metadata', {})
-            
-            sources_text += f"\n{i+1}. "
-            if metadata.get('title'):
-                sources_text += f"{metadata['title']} "
-            sources_text += f"(점수: {score:.3f})"
-        
-        return sources_text
-    
-    def get_system_stats(self) -> Dict[str, Any]:
-        """시스템 통계 조회"""
-        stats = {
-            'total_queries': len(self.conversation_history),
-            'vector_db_size': self.vector_db.collection.count(),
-            'model_status': 'active' if self.llm_client else 'inactive',
-            'image_analyzer': 'active' if self.image_analyzer else 'inactive'
-        }
-        return stats
+        return '\n'.join(context_parts)
 
 
-def create_enhanced_gradio_app(config: Optional[Config] = None) -> gr.Blocks:
-    """
-    향상된 Gradio 애플리케이션 생성
+def create_gradio_interface():
+    """향상된 Gradio 인터페이스 생성"""
     
-    Args:
-        config: 설정 객체 (없으면 기본값 사용)
-        
-    Returns:
-        Gradio Blocks 인스턴스
-    """
-    # 설정 초기화
-    if config is None:
-        config = Config()
+    # 설정 로드
+    config = Config()
     
     # LLM 클라이언트 초기화
     llm_client = LLMClient(config.llm)
     
-    # 서버 대기
-    logger.info("Waiting for LLM server...")
-    if not llm_client.wait_for_server():
-        logger.error("Failed to connect to LLM server")
-        raise RuntimeError("LLM server connection failed")
-    
-    # 향상된 챗봇 서비스 초기화
+    # 향상된 챗 서비스 초기화
     chat_service = EnhancedChatService(config, llm_client)
     
-    # Gradio 인터페이스
-    with gr.Blocks(
-        title="AI 전기공학 튜터 (향상된 버전)",
-        theme=gr.themes.Soft(),
-        css="""
-        .message { font-size: 16px; }
-        .latex-math { font-family: 'Computer Modern', serif; }
-        pre { background-color: #f0f0f0; padding: 10px; border-radius: 5px; }
-        """
-    ) as app:
-        gr.Markdown("""
-        # 🎓 AI 전기공학 튜터 (향상된 버전)
+    def chat_function(
+        message: str, 
+        image: Optional[Image.Image],
+        use_web_search: bool,
+        processing_mode: str,
+        history: List[Tuple[str, str]]
+    ) -> Tuple[List[Tuple[str, str]], str, str, str]:
+        """채팅 처리 함수"""
         
-        ChatGPT 스타일의 전문적인 전기공학 학습 도우미입니다.
-        - ✅ **구조화된 답변**: 핵심 정리, 단계별 설명, 시각적 요소
-        - 📊 **수식 지원**: LaTeX 수식 인식 및 표현
-        - 🖼️ **이미지 분석**: 문제 사진을 업로드하면 OCR로 분석
-        - 💡 **전문가 수준**: 전기공학 특화 지식 기반
-        """)
+        if not message.strip():
+            return history, "", "", ""
         
-        # 메인 인터페이스
+        # 쿼리 처리
+        answer, rag_results, web_results, elapsed_time, image_analysis = chat_service.process_query(
+            message, 
+            image,
+            use_web_search,
+            processing_mode
+        )
+        
+        # 이력 업데이트
+        history.append((message, answer))
+        
+        # 추가 정보 포맷팅
+        rag_info = _format_rag_results(rag_results)
+        web_info = _format_web_results(web_results)
+        stats = f"처리 시간: {elapsed_time:.2f}초\n처리 모드: {processing_mode}"
+        
+        if image_analysis:
+            stats = f"{stats}\n\n--- 이미지 분석 결과 ---\n{image_analysis}"
+        
+        return history, rag_info, web_info, stats
+    
+    def _format_rag_results(results: List[SearchResult]) -> str:
+        """RAG 결과 포맷팅"""
+        if not results:
+            return "관련 자료를 찾을 수 없습니다."
+        
+        lines = []
+        for i, result in enumerate(results[:3], 1):
+            lines.append(f"{i}. {result.question[:100]}...")
+            lines.append(f"   신뢰도: {result.confidence:.3f}")
+            lines.append("")
+        
+        return '\n'.join(lines)
+    
+    def _format_web_results(results: List[Dict]) -> str:
+        """웹 검색 결과 포맷팅"""
+        if not results:
+            return "웹 검색 결과가 없습니다."
+        
+        lines = []
+        for i, result in enumerate(results, 1):
+            lines.append(f"{i}. {result.get('title', 'No title')}")
+            lines.append(f"   {result.get('url', '')}")
+            lines.append("")
+        
+        return '\n'.join(lines)
+    
+    # Gradio 인터페이스 구성
+    with gr.Blocks(title="Enhanced Electrical Engineering AI Assistant") as demo:
+        gr.Markdown(
+            """
+            # ⚡ Enhanced Electrical Engineering AI Assistant
+            
+            향상된 이미지 분석 기능을 갖춘 전기공학 AI 어시스턴트입니다.
+            - 수식 인식 특화 OCR
+            - 다단계 이미지 분석 파이프라인
+            - 전기공학 도메인 특화 처리
+            """
+        )
+        
         with gr.Row():
-            with gr.Column(scale=7):
-                # 채팅 인터페이스
+            with gr.Column(scale=2):
                 chatbot = gr.Chatbot(
                     label="대화",
-                    height=600,
-                    bubble_full_width=False,
+                    height=500,
                     show_label=True,
-                    elem_classes=["message"]
+                    show_copy_button=True
                 )
                 
-                # 입력 영역
                 with gr.Row():
-                    with gr.Column(scale=4):
-                        msg = gr.Textbox(
-                            label="질문을 입력하세요",
-                            placeholder="전기공학 관련 질문을 입력하세요...",
-                            lines=3,
-                            max_lines=5
-                        )
-                    with gr.Column(scale=1):
-                        submit = gr.Button("전송", variant="primary", size="lg")
-                        clear = gr.Button("대화 초기화", size="sm")
+                    msg = gr.Textbox(
+                        label="질문을 입력하세요",
+                        placeholder="전기공학 관련 질문을 입력하세요...",
+                        lines=2,
+                        scale=4
+                    )
+                    submit = gr.Button("전송", variant="primary", scale=1)
                 
-                # 이미지 업로드
                 with gr.Row():
                     image_input = gr.Image(
-                        label="문제 이미지 업로드 (선택사항)",
+                        label="이미지 업로드 (선택)",
                         type="pil",
                         height=200
                     )
-                    image_preview = gr.Markdown("이미지를 업로드하면 OCR로 텍스트와 수식을 추출합니다.")
-            
-            # 사이드바
-            with gr.Column(scale=3):
-                # 응답 스타일 선택
-                with gr.Box():
-                    gr.Markdown("### ⚙️ 응답 스타일")
-                    response_style = gr.Radio(
-                        choices=[
-                            ("종합적 설명", "comprehensive"),
-                            ("단계별 풀이", "step_by_step"),
-                            ("개념 설명", "concept")
-                        ],
-                        value="comprehensive",
-                        label="원하는 응답 형식을 선택하세요"
-                    )
+                    
+                    with gr.Column():
+                        use_web = gr.Checkbox(
+                            label="웹 검색 사용",
+                            value=True
+                        )
+                        processing_mode = gr.Radio(
+                            choices=["standard", "enhanced", "next_gen"],
+                            value="enhanced",
+                            label="처리 모드"
+                        )
                 
-                # 예제 질문
-                gr.Markdown("### 💡 예제 질문")
-                with gr.Tab("기본 개념"):
-                    gr.Examples(
-                        examples=[
-                            "3상 전력 시스템의 장점은 무엇인가요?",
-                            "역률이란 무엇이고 왜 중요한가요?",
-                            "변압기의 동작 원리를 설명해주세요."
-                        ],
-                        inputs=msg,
-                        label="클릭하여 사용"
-                    )
+                clear = gr.Button("대화 초기화")
                 
-                with gr.Tab("문제 풀이"):
-                    gr.Examples(
-                        examples=[
-                            "3상 전력에서 선간전압이 380V이고 부하전류가 10A일 때 전력을 계산하세요.",
-                            "RLC 직렬회로에서 공진주파수를 구하는 방법을 설명해주세요.",
-                            "유도전동기의 슬립이 0.05일 때 회전속도를 구하세요."
-                        ],
-                        inputs=msg
-                    )
-                
-                with gr.Tab("이미지 예시"):
-                    gr.Markdown("""
-                    📷 **이미지 업로드 팁:**
-                    - 문제 사진을 찍어 업로드하세요
-                    - 회로도나 그래프도 분석 가능합니다
-                    - 손글씨도 인식됩니다 (정자로 쓸수록 정확)
-                    """)
-        
-        # 통계 및 정보
-        with gr.Accordion("📊 시스템 정보", open=False):
-            with gr.Row():
-                stats_display = gr.JSON(
-                    label="시스템 통계",
-                    visible=True
+            with gr.Column(scale=1):
+                rag_output = gr.Textbox(
+                    label="RAG 검색 결과",
+                    lines=10,
+                    max_lines=15
                 )
-                refresh_stats = gr.Button("새로고침", size="sm")
+                
+                web_output = gr.Textbox(
+                    label="웹 검색 결과",
+                    lines=10,
+                    max_lines=15
+                )
+                
+                stats_output = gr.Textbox(
+                    label="처리 정보",
+                    lines=10,
+                    max_lines=20
+                )
         
         # 이벤트 핸들러
-        def respond(message: str, image, chat_history: List[Tuple[str, str]], style: str):
-            """메시지 응답 처리"""
-            if not message.strip():
-                return "", None, chat_history
-            
-            # 스타일 설정 임시 저장
-            original_style = chat_service.enhanced_rag.response_generator
-            
-            response = chat_service.process_query(message, chat_history, image)
-            
-            # 이미지가 있는 경우 대화에 표시
-            if image:
-                chat_history.append((f"{message}\n📎 [이미지 첨부됨]", response))
-            else:
-                chat_history.append((message, response))
-            
-            return "", None, chat_history
+        def submit_message(message, image, use_web, mode, history):
+            return chat_function(message, image, use_web, mode, history)
         
-        def clear_chat():
-            """대화 초기화"""
-            chat_service.conversation_history.clear()
-            return None, "", None
-        
-        def update_stats():
-            """통계 업데이트"""
-            return chat_service.get_system_stats()
-        
-        def analyze_image(image):
-            """이미지 미리보기 분석"""
-            if not image:
-                return "이미지를 업로드하면 OCR로 텍스트와 수식을 추출합니다."
-            
-            try:
-                # 간단한 분석 수행
-                analysis = chat_service.image_analyzer.analyze_image(image)
-                if analysis['success']:
-                    preview = "🔍 **이미지 분석 결과:**\n"
-                    if analysis.get('ocr_text'):
-                        preview += f"- 텍스트: {analysis['ocr_text'][:100]}...\n"
-                    if analysis.get('formulas'):
-                        preview += f"- 수식: {len(analysis['formulas'])}개 감지\n"
-                    return preview
-                else:
-                    return "이미지 분석 중 오류가 발생했습니다."
-            except:
-                return "이미지 분석 기능을 사용할 수 없습니다."
-        
-        # 이벤트 바인딩
-        submit.click(
-            respond, 
-            [msg, image_input, chatbot, response_style], 
-            [msg, image_input, chatbot]
-        )
         msg.submit(
-            respond, 
-            [msg, image_input, chatbot, response_style], 
-            [msg, image_input, chatbot]
+            submit_message,
+            inputs=[msg, image_input, use_web, processing_mode, chatbot],
+            outputs=[chatbot, rag_output, web_output, stats_output]
+        ).then(
+            lambda: ("", None),
+            outputs=[msg, image_input]
         )
-        clear.click(clear_chat, None, [chatbot, msg, image_input])
-        refresh_stats.click(update_stats, None, stats_display)
-        image_input.change(analyze_image, image_input, image_preview)
         
-        # 초기 통계 표시
-        app.load(update_stats, None, stats_display)
+        submit.click(
+            submit_message,
+            inputs=[msg, image_input, use_web, processing_mode, chatbot],
+            outputs=[chatbot, rag_output, web_output, stats_output]
+        ).then(
+            lambda: ("", None),
+            outputs=[msg, image_input]
+        )
+        
+        clear.click(lambda: [], outputs=[chatbot])
+        
+        # 예제
+        gr.Examples(
+            examples=[
+                ["옴의 법칙에 대해 설명해주세요", None, True, "standard"],
+                ["이 회로의 전체 저항을 계산해주세요", None, True, "enhanced"],
+                ["변압기의 동작 원리를 설명해주세요", None, True, "next_gen"]
+            ],
+            inputs=[msg, image_input, use_web, processing_mode]
+        )
     
-    return app
+    return demo
 
 
 def main():
     """메인 함수"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Enhanced RAG System Gradio UI")
-    parser.add_argument(
-        "--config", 
-        type=str, 
-        help="Path to config file (JSON format)"
-    )
-    parser.add_argument(
-        "--server-port", 
-        type=int, 
-        default=7860,
-        help="Server port (default: 7860)"
-    )
-    parser.add_argument(
-        "--share", 
-        action="store_true",
-        help="Create public Gradio link"
-    )
-    
-    args = parser.parse_args()
-    
-    # 설정 로드
-    config = Config()
-    config.app.show_sources = True  # 소스 표시 활성화
-    
-    # 명령줄 인자로 오버라이드
-    if args.server_port:
-        config.app.server_port = args.server_port
-    if args.share:
-        config.app.share = args.share
-    
-    # 앱 생성 및 실행
     try:
-        app = create_enhanced_gradio_app(config)
-        app.launch(
-            server_name=config.app.server_name,
-            server_port=config.app.server_port,
-            share=config.app.share
+        # Gradio 인터페이스 생성 및 실행
+        demo = create_gradio_interface()
+        
+        # 서버 실행
+        demo.launch(
+            server_name="0.0.0.0",
+            server_port=7860,
+            share=False,
+            show_error=True
         )
+        
     except Exception as e:
-        logger.error(f"Failed to launch app: {e}")
-        sys.exit(1)
+        logger.error(f"Application error: {e}")
+        raise
 
 
 if __name__ == "__main__":

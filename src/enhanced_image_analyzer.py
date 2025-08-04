@@ -1,331 +1,400 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Enhanced Image Analyzer with Multimodal OCR
-멀티모달 OCR을 통합한 향상된 이미지 분석기
-"""
-
+import asyncio
 import logging
-from typing import Dict, Any, Optional, Union
-from PIL import Image
+from typing import Dict, List, Optional, Any, Tuple
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+import cv2
 import torch
+from transformers import AutoProcessor, AutoModelForCausalLM
+import io
+import base64
+from dataclasses import dataclass
+from enum import Enum
 
-# 기존 Florence-2 분석기
-from image_analyzer import Florence2ImageAnalyzer
-
-# 새로운 멀티모달 OCR
-from multimodal_ocr import MultimodalOCRPipeline
+from math_ocr_system import MathOCRSystem, MathExpression
 
 logger = logging.getLogger(__name__)
 
+class ImageRegionType(Enum):
+    """이미지 영역 타입"""
+    TEXT = "text"
+    FORMULA = "formula"
+    DIAGRAM = "diagram"
+    CIRCUIT = "circuit"
+    GRAPH = "graph"
+    TABLE = "table"
+
+@dataclass
+class ImageRegion:
+    """이미지 영역 정보"""
+    type: ImageRegionType
+    bbox: Tuple[int, int, int, int]  # x1, y1, x2, y2
+    confidence: float
+    content: Optional[Any] = None
 
 class EnhancedImageAnalyzer:
-    """향상된 이미지 분석기 - Florence-2 + Multimodal OCR"""
-    
-    def __init__(self, use_florence: bool = True):
-        """
-        향상된 이미지 분석기 초기화
-        
-        Args:
-            use_florence: Florence-2 사용 여부
-        """
-        self.use_florence = use_florence
-        self.florence_analyzer = None
-        self.ocr_pipeline = None
-        
-        # Florence-2 초기화
-        if use_florence:
-            try:
-                self.florence_analyzer = Florence2ImageAnalyzer()
-                logger.info("Florence-2 analyzer initialized")
-            except Exception as e:
-                logger.warning(f"Florence-2 initialization failed: {e}")
-                self.florence_analyzer = None
-        
-        # 멀티모달 OCR 초기화
-        try:
-            self.ocr_pipeline = MultimodalOCRPipeline()
-            logger.info("Multimodal OCR pipeline initialized")
-        except Exception as e:
-            logger.error(f"Multimodal OCR initialization failed: {e}")
-            self.ocr_pipeline = None
-    
-    def analyze_image(
-        self, 
-        image: Union[Image.Image, str, bytes],
-        extract_mode: str = 'all'
-    ) -> Dict[str, Any]:
-        """
-        통합 이미지 분석
-        
-        Args:
-            image: 분석할 이미지
-            extract_mode: 추출 모드 ('all', 'text', 'formula', 'diagram')
-            
-        Returns:
-            분석 결과
-        """
-        results = {
-            'success': False,
-            'caption': '',
-            'ocr_text': '',
-            'formulas': [],
-            'diagrams': [],
-            'structured_content': {},
-            'error': None
-        }
-        
-        try:
-            # 1. Florence-2로 전체 캡션 생성 (선택적)
-            if self.use_florence and self.florence_analyzer:
-                try:
-                    florence_result = self.florence_analyzer.generate_caption(
-                        image, 
-                        detail_level='detailed'
-                    )
-                    results['caption'] = florence_result
-                except Exception as e:
-                    logger.warning(f"Florence-2 analysis failed: {e}")
-            
-            # 2. 멀티모달 OCR로 상세 분석
-            if self.ocr_pipeline:
-                ocr_results = self.ocr_pipeline.process_image(image)
-                
-                # OCR 텍스트 통합
-                results['ocr_text'] = ' '.join(ocr_results['full_text'])
-                results['formulas'] = ocr_results['formulas']
-                results['diagrams'] = ocr_results['diagrams']
-                results['structured_content'] = ocr_results['structured_content']
-                
-                # 문제/풀이 분리 (전기공학 문제인 경우)
-                if extract_mode == 'question_solution':
-                    qs_results = self.ocr_pipeline.extract_question_and_solution(image)
-                    results['question'] = qs_results['question']
-                    results['solution'] = qs_results['solution']
-            
-            results['success'] = True
-            
-        except Exception as e:
-            logger.error(f"Enhanced image analysis failed: {e}")
-            results['error'] = str(e)
-        
-        return results
-    
-    def extract_text(self, image: Union[Image.Image, str, bytes]) -> str:
-        """이미지에서 텍스트만 추출"""
-        if self.ocr_pipeline:
-            try:
-                results = self.ocr_pipeline.process_image(image)
-                return ' '.join(results['full_text'])
-            except Exception as e:
-                logger.error(f"Text extraction failed: {e}")
-        
-        # 폴백: Florence-2 사용
-        if self.florence_analyzer:
-            return self.florence_analyzer.extract_text(image)
-        
-        return ""
-    
-    def extract_formulas(self, image: Union[Image.Image, str, bytes]) -> list:
-        """이미지에서 수식만 추출"""
-        if self.ocr_pipeline:
-            try:
-                results = self.ocr_pipeline.process_image(image)
-                return results['formulas']
-            except Exception as e:
-                logger.error(f"Formula extraction failed: {e}")
-        
-        return []
-    
-    def analyze_electrical_problem(self, image: Union[Image.Image, str, bytes]) -> Dict[str, Any]:
-        """전기공학 문제 특화 분석"""
-        results = self.analyze_image(image, extract_mode='question_solution')
-        
-        # 전기공학 특화 후처리
-        if results['success']:
-            # 전기 단위 정규화
-            results['normalized_units'] = self._normalize_electrical_units(results['ocr_text'])
-            
-            # 회로 컴포넌트 추출
-            if results['diagrams']:
-                results['circuit_components'] = self._extract_circuit_components(results['diagrams'])
-        
-        return results
-    
-    def _normalize_electrical_units(self, text: str) -> str:
-        """전기 단위 정규화"""
-        import re
-        
-        # 단위 변환 규칙
-        unit_mappings = {
-            r'(\d+)\s*k\s*W': r'\1 kW',
-            r'(\d+)\s*k\s*VA': r'\1 kVA',
-            r'(\d+)\s*m\s*A': r'\1 mA',
-            r'(\d+)\s*μ\s*F': r'\1 μF',
-            r'(\d+)\s*Ω': r'\1 Ω',
-            r'(\d+)\s*ohm': r'\1 Ω',
-        }
-        
-        normalized = text
-        for pattern, replacement in unit_mappings.items():
-            normalized = re.sub(pattern, replacement, normalized)
-        
-        return normalized
-    
-    def _extract_circuit_components(self, diagrams: list) -> list:
-        """회로 컴포넌트 추출"""
-        components = []
-        
-        for diagram in diagrams:
-            if isinstance(diagram, dict) and 'components' in diagram:
-                components.extend(diagram['components'])
-        
-        return components
-
-
-class ChatGPTStyleAnalyzer(EnhancedImageAnalyzer):
-    """ChatGPT 스타일 응답을 위한 특화 분석기"""
-    
-    def analyze_for_chatgpt_response(self, image: Union[Image.Image, str, bytes]) -> Dict[str, Any]:
-        """ChatGPT 스타일 응답을 위한 분석"""
-        # 기본 분석
-        results = self.analyze_electrical_problem(image)
-        
-        # ChatGPT 스타일을 위한 추가 정보
-        if results['success']:
-            # 핵심 개념 추출
-            results['key_concepts'] = self._extract_key_concepts(results)
-            
-            # 단계별 접근법 준비
-            results['solution_steps'] = self._prepare_solution_steps(results)
-            
-            # 시각적 요소 준비
-            results['visual_elements'] = self._prepare_visual_elements(results)
-        
-        return results
-    
-    def _extract_key_concepts(self, results: Dict[str, Any]) -> list:
-        """핵심 개념 추출"""
-        concepts = []
-        
-        # 텍스트에서 전기공학 키워드 추출
-        keywords = [
-            '전압', '전류', '저항', '임피던스', '전력', '역률',
-            '회로', '변압기', '모터', '발전기', '송전', '배전'
-        ]
-        
-        text = results.get('ocr_text', '')
-        for keyword in keywords:
-            if keyword in text:
-                concepts.append(keyword)
-        
-        return concepts
-    
-    def _prepare_solution_steps(self, results: Dict[str, Any]) -> list:
-        """해결 단계 준비"""
-        steps = []
-        
-        if 'question' in results and 'solution' in results:
-            # 문제 이해 단계
-            steps.append({
-                'step': 1,
-                'title': '문제 이해',
-                'content': results['question']['text'],
-                'formulas': results['question']['formulas']
-            })
-            
-            # 풀이 단계 (수식별로 분리)
-            solution_formulas = results['solution']['formulas']
-            for i, formula in enumerate(solution_formulas):
-                steps.append({
-                    'step': i + 2,
-                    'title': f'계산 단계 {i + 1}',
-                    'content': '',
-                    'formulas': [formula]
-                })
-        
-        return steps
-    
-    def _prepare_visual_elements(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        """시각적 요소 준비"""
-        visual = {
-            'has_circuit': len(results.get('diagrams', [])) > 0,
-            'has_formulas': len(results.get('formulas', [])) > 0,
-            'needs_table': False,
-            'needs_graph': False
-        }
-        
-        # 표가 필요한지 판단
-        if '비교' in results.get('ocr_text', '') or '차이' in results.get('ocr_text', ''):
-            visual['needs_table'] = True
-        
-        # 그래프가 필요한지 판단
-        if '그래프' in results.get('ocr_text', '') or '변화' in results.get('ocr_text', ''):
-            visual['needs_graph'] = True
-        
-        return visual
-
-
-# 기존 시스템과의 호환성을 위한 어댑터
-class ImageAnalyzerAdapter:
-    """기존 Florence2ImageAnalyzer 인터페이스와 호환되는 어댑터"""
+    """향상된 이미지 분석 시스템"""
     
     def __init__(self):
-        self.analyzer = ChatGPTStyleAnalyzer(use_florence=True)
-    
-    def analyze_image(self, image, task="<CAPTION>", text_input=None):
-        """기존 인터페이스와 호환"""
-        results = self.analyzer.analyze_image(image)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.florence_processor = None
+        self.florence_model = None
+        self.math_ocr = MathOCRSystem()
+        self.region_detector = None
         
-        # 기존 형식으로 변환
-        if task == "<CAPTION>":
-            return {
-                "success": results['success'],
-                "task": task,
-                "result": results['caption']
+    async def initialize(self):
+        """시스템 초기화"""
+        try:
+            # Florence-2 모델 로드 (기본 이미지 이해용)
+            logger.info("Loading Florence-2 model...")
+            self.florence_processor = AutoProcessor.from_pretrained(
+                "microsoft/Florence-2-large", trust_remote_code=True
+            )
+            self.florence_model = AutoModelForCausalLM.from_pretrained(
+                "microsoft/Florence-2-large", 
+                trust_remote_code=True,
+                torch_dtype=torch.float16
+            ).to(self.device)
+            
+            # Math OCR 시스템 초기화
+            await self.math_ocr.initialize()
+            
+            # 영역 검출기 초기화
+            self._initialize_region_detector()
+            
+            logger.info("Enhanced Image Analyzer initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize Enhanced Image Analyzer: {e}")
+            raise
+    
+    def _initialize_region_detector(self):
+        """영역 검출기 초기화"""
+        # OpenCV 기반 영역 검출
+        self.region_detector = {
+            'text_cascade': cv2.CascadeClassifier(),
+            'mser': cv2.MSER_create(),
+            'contour_params': {
+                'min_area': 100,
+                'max_area': 0.5,  # 이미지 크기의 50%
+                'aspect_ratio_range': (0.1, 10)
             }
-        elif task == "<OCR>":
-            return {
-                "success": results['success'],
-                "task": task,
-                "result": results['ocr_text']
-            }
-        else:
-            return {
-                "success": results['success'],
-                "task": task,
-                "result": results
-            }
+        }
     
-    def extract_text(self, image):
-        """기존 인터페이스와 호환"""
-        return self.analyzer.extract_text(image)
+    async def analyze_image(self, image: Image.Image) -> Dict[str, Any]:
+        """이미지 분석 메인 함수"""
+        try:
+            # 1. 이미지 영역 검출
+            regions = await self._detect_regions(image)
+            
+            # 2. 각 영역별 처리
+            region_results = await self._process_regions(image, regions)
+            
+            # 3. 전체 이미지 캡션 생성
+            caption = await self._generate_caption(image)
+            
+            # 4. 결과 통합
+            integrated_result = await self._integrate_analysis(
+                caption, regions, region_results
+            )
+            
+            return integrated_result
+            
+        except Exception as e:
+            logger.error(f"Error in analyze_image: {e}")
+            return {'error': str(e)}
     
-    def generate_caption(self, image, detail_level="simple"):
-        """기존 인터페이스와 호환"""
-        results = self.analyzer.analyze_image(image)
-        return results['caption']
-
-
-if __name__ == "__main__":
-    # 테스트
-    logging.basicConfig(level=logging.INFO)
-    
-    analyzer = ChatGPTStyleAnalyzer()
-    
-    # 테스트 이미지 경로
-    test_image = "test_electrical_problem.png"
-    
-    try:
-        results = analyzer.analyze_for_chatgpt_response(test_image)
+    async def _detect_regions(self, image: Image.Image) -> List[ImageRegion]:
+        """이미지에서 영역 검출"""
+        img_array = np.array(image)
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         
-        print("=== Analysis Results ===")
-        print(f"Success: {results['success']}")
-        print(f"Caption: {results['caption'][:100]}...")
-        print(f"OCR Text: {results['ocr_text'][:100]}...")
-        print(f"Formulas: {len(results['formulas'])}")
-        print(f"Key Concepts: {results['key_concepts']}")
-        print(f"Solution Steps: {len(results['solution_steps'])}")
+        regions = []
         
-    except Exception as e:
-        print(f"Test failed: {e}")
+        # 1. MSER을 사용한 텍스트 영역 검출
+        mser_regions = self.region_detector['mser'].detectRegions(gray)
+        for region in mser_regions[0]:
+            x, y, w, h = cv2.boundingRect(region)
+            if self._is_valid_region(w, h, gray.shape):
+                regions.append(ImageRegion(
+                    type=ImageRegionType.TEXT,
+                    bbox=(x, y, x+w, y+h),
+                    confidence=0.7
+                ))
+        
+        # 2. 엣지 검출을 통한 다이어그램/회로도 검출
+        edges = cv2.Canny(gray, 50, 150)
+        contours, _ = cv2.findContours(
+            edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            if self._is_valid_region(w, h, gray.shape):
+                # 회로도 패턴 검사
+                if self._is_circuit_pattern(gray[y:y+h, x:x+w]):
+                    region_type = ImageRegionType.CIRCUIT
+                else:
+                    region_type = ImageRegionType.DIAGRAM
+                
+                regions.append(ImageRegion(
+                    type=region_type,
+                    bbox=(x, y, x+w, y+h),
+                    confidence=0.6
+                ))
+        
+        # 3. 영역 병합 및 중복 제거
+        regions = self._merge_overlapping_regions(regions)
+        
+        return regions
+    
+    def _is_valid_region(self, width: int, height: int, image_shape: Tuple) -> bool:
+        """유효한 영역인지 검사"""
+        params = self.region_detector['contour_params']
+        area = width * height
+        image_area = image_shape[0] * image_shape[1]
+        aspect_ratio = width / height if height > 0 else 0
+        
+        return (
+            area >= params['min_area'] and
+            area <= params['max_area'] * image_area and
+            params['aspect_ratio_range'][0] <= aspect_ratio <= params['aspect_ratio_range'][1]
+        )
+    
+    def _is_circuit_pattern(self, region: np.ndarray) -> bool:
+        """회로도 패턴인지 검사"""
+        # 직선과 연결점이 많은지 검사
+        edges = cv2.Canny(region, 50, 150)
+        lines = cv2.HoughLinesP(
+            edges, 1, np.pi/180, threshold=50, minLineLength=30, maxLineGap=10
+        )
+        
+        return lines is not None and len(lines) > 5
+    
+    def _merge_overlapping_regions(self, regions: List[ImageRegion]) -> List[ImageRegion]:
+        """중복 영역 병합"""
+        if not regions:
+            return []
+        
+        # IoU 기반 병합
+        merged = []
+        used = set()
+        
+        for i, region1 in enumerate(regions):
+            if i in used:
+                continue
+            
+            for j, region2 in enumerate(regions[i+1:], i+1):
+                if j in used:
+                    continue
+                
+                iou = self._calculate_iou(region1.bbox, region2.bbox)
+                if iou > 0.5:
+                    # 병합
+                    x1 = min(region1.bbox[0], region2.bbox[0])
+                    y1 = min(region1.bbox[1], region2.bbox[1])
+                    x2 = max(region1.bbox[2], region2.bbox[2])
+                    y2 = max(region1.bbox[3], region2.bbox[3])
+                    
+                    region1.bbox = (x1, y1, x2, y2)
+                    region1.confidence = max(region1.confidence, region2.confidence)
+                    used.add(j)
+            
+            merged.append(region1)
+        
+        return merged
+    
+    def _calculate_iou(self, bbox1: Tuple, bbox2: Tuple) -> float:
+        """IoU (Intersection over Union) 계산"""
+        x1 = max(bbox1[0], bbox2[0])
+        y1 = max(bbox1[1], bbox2[1])
+        x2 = min(bbox1[2], bbox2[2])
+        y2 = min(bbox1[3], bbox2[3])
+        
+        if x2 < x1 or y2 < y1:
+            return 0.0
+        
+        intersection = (x2 - x1) * (y2 - y1)
+        area1 = (bbox1[2] - bbox1[0]) * (bbox1[3] - bbox1[1])
+        area2 = (bbox2[2] - bbox2[0]) * (bbox2[3] - bbox2[1])
+        union = area1 + area2 - intersection
+        
+        return intersection / union if union > 0 else 0.0
+    
+    async def _process_regions(
+        self, image: Image.Image, regions: List[ImageRegion]
+    ) -> Dict[str, Any]:
+        """각 영역 처리"""
+        results = {
+            'text_regions': [],
+            'formula_regions': [],
+            'diagram_regions': [],
+            'circuit_regions': []
+        }
+        
+        for region in regions:
+            # 영역 추출
+            x1, y1, x2, y2 = region.bbox
+            region_image = image.crop((x1, y1, x2, y2))
+            
+            if region.type in [ImageRegionType.TEXT, ImageRegionType.FORMULA]:
+                # 수식 OCR 처리
+                math_result = await self.math_ocr.process_image(region_image)
+                
+                if math_result.get('formulas'):
+                    results['formula_regions'].append({
+                        'bbox': region.bbox,
+                        'formulas': math_result['formulas'],
+                        'context': math_result.get('electrical_context', '')
+                    })
+                else:
+                    results['text_regions'].append({
+                        'bbox': region.bbox,
+                        'text': math_result.get('ocr_text', '')
+                    })
+            
+            elif region.type == ImageRegionType.CIRCUIT:
+                # 회로도 분석
+                circuit_analysis = await self._analyze_circuit(region_image)
+                results['circuit_regions'].append({
+                    'bbox': region.bbox,
+                    'analysis': circuit_analysis
+                })
+            
+            elif region.type == ImageRegionType.DIAGRAM:
+                # 다이어그램 분석
+                diagram_analysis = await self._analyze_diagram(region_image)
+                results['diagram_regions'].append({
+                    'bbox': region.bbox,
+                    'analysis': diagram_analysis
+                })
+        
+        return results
+    
+    async def _analyze_circuit(self, image: Image.Image) -> Dict[str, Any]:
+        """회로도 분석"""
+        # 간단한 회로 요소 검출
+        img_array = np.array(image)
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        
+        # 회로 요소 템플릿 매칭 (실제로는 더 복잡한 모델 필요)
+        components = {
+            'resistors': 0,
+            'capacitors': 0,
+            'inductors': 0,
+            'voltage_sources': 0,
+            'current_sources': 0
+        }
+        
+        # Florence-2로 간단한 설명 생성
+        description = await self._get_florence_description(image, "circuit diagram")
+        
+        return {
+            'components': components,
+            'description': description
+        }
+    
+    async def _analyze_diagram(self, image: Image.Image) -> Dict[str, Any]:
+        """다이어그램 분석"""
+        description = await self._get_florence_description(image, "technical diagram")
+        
+        return {
+            'type': 'general_diagram',
+            'description': description
+        }
+    
+    async def _get_florence_description(self, image: Image.Image, prompt: str) -> str:
+        """Florence-2를 사용한 설명 생성"""
+        inputs = self.florence_processor(
+            text=f"<CAPTION> {prompt}",
+            images=image,
+            return_tensors="pt"
+        ).to(self.device)
+        
+        with torch.no_grad():
+            generated_ids = self.florence_model.generate(
+                **inputs,
+                max_new_tokens=100,
+                do_sample=False,
+                temperature=0.7
+            )
+        
+        generated_text = self.florence_processor.batch_decode(
+            generated_ids, skip_special_tokens=False
+        )[0]
+        
+        parsed = self.florence_processor.post_process_generation(
+            generated_text, 
+            task="<CAPTION>",
+            image_size=(image.width, image.height)
+        )
+        
+        return parsed.get('<CAPTION>', '')
+    
+    async def _generate_caption(self, image: Image.Image) -> str:
+        """전체 이미지 캡션 생성"""
+        return await self._get_florence_description(image, "electrical engineering content")
+    
+    async def _integrate_analysis(
+        self, caption: str, regions: List[ImageRegion], region_results: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """분석 결과 통합"""
+        # 모든 수식 수집
+        all_formulas = []
+        for formula_region in region_results.get('formula_regions', []):
+            all_formulas.extend(formula_region['formulas'])
+        
+        # 모든 텍스트 수집
+        all_text = ' '.join([
+            region['text'] for region in region_results.get('text_regions', [])
+        ])
+        
+        # 전기공학 컨텍스트 생성
+        electrical_context = self._generate_comprehensive_context(
+            all_formulas, region_results
+        )
+        
+        return {
+            'caption': caption,
+            'ocr_text': all_text,
+            'formulas': all_formulas,
+            'electrical_context': electrical_context,
+            'regions': {
+                'total': len(regions),
+                'text': len(region_results.get('text_regions', [])),
+                'formula': len(region_results.get('formula_regions', [])),
+                'circuit': len(region_results.get('circuit_regions', [])),
+                'diagram': len(region_results.get('diagram_regions', []))
+            },
+            'detailed_results': region_results
+        }
+    
+    def _generate_comprehensive_context(
+        self, formulas: List[Dict], region_results: Dict[str, Any]
+    ) -> str:
+        """종합적인 전기공학 컨텍스트 생성"""
+        contexts = []
+        
+        # 수식 기반 컨텍스트
+        formula_types = set(f['type'] for f in formulas if f.get('type'))
+        if 'ohms_law' in formula_types:
+            contexts.append("옴의 법칙 관련 문제")
+        if 'power_vi' in formula_types or 'power_i2r' in formula_types:
+            contexts.append("전력 계산 문제")
+        
+        # 회로도 기반 컨텍스트
+        if region_results.get('circuit_regions'):
+            contexts.append("회로 분석 문제")
+        
+        # 변수 기반 컨텍스트
+        all_variables = {}
+        for formula in formulas:
+            if formula.get('variables'):
+                all_variables.update(formula['variables'])
+        
+        if 'voltage' in all_variables and 'current' in all_variables:
+            contexts.append("전압-전류 관계")
+        if 'resistance' in all_variables:
+            contexts.append("저항 관련")
+        
+        return ' | '.join(contexts) if contexts else "전기공학 문제"
