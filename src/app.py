@@ -23,21 +23,28 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 try:
-    # 새로운 Vision Transformer 분석기 시도
-    from vision_transformer_analyzer import Florence2ImageAnalyzer
-    logger.info("Attempting to use Vision Transformer Analyzer")
+    # 단순화된 이미지 분석기 우선 시도
+    from simple_image_analyzer import Florence2ImageAnalyzer, SimpleMultimodalRAGService
+    logger.info("Using Simple Image Analyzer")
+    USE_SIMPLE_ANALYZER = True
 except ImportError as e:
-    logger.warning(f"Vision Transformer import failed: {e}")
+    logger.warning(f"Simple Image Analyzer import failed: {e}")
+    USE_SIMPLE_ANALYZER = False
     try:
-        # 기존 분석기로 폴백
-        from new_image_analyzer import Florence2ImageAnalyzer
-        logger.info("Using Real OCR Analyzer as fallback")
+        # Vision Transformer 분석기 폴백
+        from vision_transformer_analyzer import Florence2ImageAnalyzer
+        logger.info("Using Vision Transformer Analyzer as fallback")
     except ImportError as e2:
-        logger.warning(f"Real OCR import failed: {e2}")
+        logger.warning(f"Vision Transformer import failed: {e2}")
         # 최종 폴백: 원본 Florence-2
         from image_analyzer import Florence2ImageAnalyzer
         logger.info("Using original Florence-2 Analyzer as final fallback")
-from image_analyzer import MultimodalRAGService
+
+# MultimodalRAGService import
+if USE_SIMPLE_ANALYZER:
+    MultimodalRAGService = SimpleMultimodalRAGService
+else:
+    from image_analyzer import MultimodalRAGService
 
 
 class ChatService:
@@ -76,12 +83,18 @@ class ChatService:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 
-                # Vision Transformer 또는 Real OCR 사용
+                # 이미지 분석기 초기화
                 self.image_analyzer = Florence2ImageAnalyzer()
-                self.multimodal_service = MultimodalRAGService(
-                    self.image_analyzer,
-                    self.rag_system.embedding_model
-                )
+                
+                if USE_SIMPLE_ANALYZER:
+                    # 단순화된 분석기는 embedding_model 파라미터가 필요 없음
+                    self.multimodal_service = MultimodalRAGService()
+                else:
+                    # 기존 분석기는 embedding_model 필요
+                    self.multimodal_service = MultimodalRAGService(
+                        self.image_analyzer,
+                        self.rag_system.embedding_model
+                    )
                 logger.info("Florence-2 image analyzer initialized successfully")
                 break
             except torch.cuda.OutOfMemoryError:

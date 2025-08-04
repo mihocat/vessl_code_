@@ -91,6 +91,9 @@ class AppConfig:
     # AI 테스트
     """
     
+    # 이미지 분석 설정
+    use_simple_analyzer: bool = True  # 단순화된 분석기 사용 여부
+    
     # 예제 질문
     example_questions: List[str] = None
     
