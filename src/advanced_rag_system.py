@@ -50,20 +50,26 @@ class AdvancedRAGSystem:
             reranker=self.reranker
         )
         
-        # 멀티모달 OCR 파이프라인
+        # 범용 OCR 파이프라인
         try:
-            from korean_ocr_pipeline import KoreanElectricalOCR
-            self.ocr_pipeline = KoreanElectricalOCR()
-            logger.info("Korean Electrical OCR pipeline loaded")
+            from universal_ocr_pipeline import DomainAdaptiveOCR
+            self.ocr_pipeline = DomainAdaptiveOCR()
+            logger.info("Universal Domain-Adaptive OCR pipeline loaded")
         except:
-            logger.warning("Korean OCR pipeline not available, trying multimodal")
+            logger.warning("Universal OCR pipeline not available, trying Korean OCR")
             try:
-                from multimodal_ocr import MultimodalOCRPipeline
-                self.ocr_pipeline = MultimodalOCRPipeline()
-                logger.info("Multimodal OCR pipeline loaded")
+                from korean_ocr_pipeline import KoreanElectricalOCR
+                self.ocr_pipeline = KoreanElectricalOCR()
+                logger.info("Korean Electrical OCR pipeline loaded")
             except:
-                logger.warning("No OCR pipeline available")
-                self.ocr_pipeline = None
+                logger.warning("Korean OCR pipeline not available, trying multimodal")
+                try:
+                    from multimodal_ocr import MultimodalOCRPipeline
+                    self.ocr_pipeline = MultimodalOCRPipeline()
+                    logger.info("Multimodal OCR pipeline loaded")
+                except:
+                    logger.warning("No OCR pipeline available")
+                    self.ocr_pipeline = None
         
         logger.info("Advanced RAG system initialized")
     
@@ -124,7 +130,11 @@ class AdvancedRAGSystem:
         # 멀티모달 OCR 우선 사용
         if self.ocr_pipeline:
             try:
-                if hasattr(self.ocr_pipeline, 'extract_electrical_data'):
+                if hasattr(self.ocr_pipeline, 'process_adaptive'):
+                    # Universal Domain-Adaptive OCR
+                    logger.info("Using Universal Domain-Adaptive OCR pipeline...")
+                    ocr_result = self.ocr_pipeline.process_adaptive(image, auto_detect=True)
+                elif hasattr(self.ocr_pipeline, 'extract_electrical_data'):
                     # Korean Electrical OCR
                     logger.info("Using Korean Electrical OCR pipeline...")
                     ocr_result = self.ocr_pipeline.extract_electrical_data(image)

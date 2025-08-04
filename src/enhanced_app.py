@@ -81,20 +81,26 @@ class EnhancedChatService:
         # 4. 이미지 분석기
         self.image_analyzer = ChatGPTStyleAnalyzer(use_florence=True)
         
-        # 5. 멀티모달 OCR (추가)
+        # 5. 범용 OCR 파이프라인
         try:
-            from korean_ocr_pipeline import KoreanElectricalOCR
-            self.ocr_pipeline = KoreanElectricalOCR()
-            logger.info("Korean Electrical OCR pipeline loaded successfully")
+            from universal_ocr_pipeline import DomainAdaptiveOCR
+            self.ocr_pipeline = DomainAdaptiveOCR()
+            logger.info("Universal Domain-Adaptive OCR pipeline loaded successfully")
         except Exception as e:
-            logger.warning(f"Failed to load Korean OCR pipeline: {e}")
+            logger.warning(f"Failed to load Universal OCR pipeline: {e}")
             try:
-                from multimodal_ocr import MultimodalOCRPipeline
-                self.ocr_pipeline = MultimodalOCRPipeline()
-                logger.info("Fallback to Multimodal OCR pipeline")
+                from korean_ocr_pipeline import KoreanElectricalOCR
+                self.ocr_pipeline = KoreanElectricalOCR()
+                logger.info("Fallback to Korean Electrical OCR pipeline")
             except Exception as e2:
-                logger.warning(f"Failed to load any OCR pipeline: {e2}")
-                self.ocr_pipeline = None
+                logger.warning(f"Failed to load Korean OCR pipeline: {e2}")
+                try:
+                    from multimodal_ocr import MultimodalOCRPipeline
+                    self.ocr_pipeline = MultimodalOCRPipeline()
+                    logger.info("Fallback to Multimodal OCR pipeline")
+                except Exception as e3:
+                    logger.warning(f"Failed to load any OCR pipeline: {e3}")
+                    self.ocr_pipeline = None
         
         # 6. 응답 생성기
         self.response_generator = ChatGPTResponseGenerator()
