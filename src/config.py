@@ -48,6 +48,21 @@ class RAGConfig:
     keyword_match_bonus: float = 0.1
     substring_match_bonus: float = 0.05
     category_bonus: float = 0.2
+    
+    # Intelligent RAG 설정
+    use_intelligent_rag: bool = False
+    intelligent_rag_mode: str = "adaptive"  # adaptive, always, never
+    intelligent_features: dict = None  # 런타임에 초기화
+    
+    def __post_init__(self):
+        """초기화 후 처리"""
+        if self.intelligent_features is None:
+            self.intelligent_features = {
+                "intent_detection": True,
+                "knowledge_graph": False,
+                "adaptive_response": True,
+                "complexity_threshold": 0.25  # 테스트 결과에 따라 조정
+            }
 
 
 @dataclass
@@ -131,6 +146,12 @@ class Config:
             self.rag.embedding_model_name = os.getenv("EMBEDDING_MODEL")
         if os.getenv("CHROMA_DB_PATH"):
             self.rag.chroma_db_path = os.getenv("CHROMA_DB_PATH")
+        
+        # Intelligent RAG 설정
+        if os.getenv("USE_INTELLIGENT_RAG"):
+            self.rag.use_intelligent_rag = os.getenv("USE_INTELLIGENT_RAG").lower() == "true"
+        if os.getenv("INTELLIGENT_RAG_MODE"):
+            self.rag.intelligent_rag_mode = os.getenv("INTELLIGENT_RAG_MODE")
         
         # 데이터셋 경로
         if os.getenv("DATASET_PATH"):

@@ -81,7 +81,7 @@ run_app.py → app.py → simple_image_analyzer.py (우선)
 
 ## 향후 개선 방향
 
-### 단기 (1-2주)
+### 단기 (1일)
 1. **성능 최적화**
    - 모델 로딩 시간 단축
    - 응답 속도 개선
@@ -92,7 +92,7 @@ run_app.py → app.py → simple_image_analyzer.py (우선)
    - 로깅 시스템 강화
    - 모니터링 도구 추가
 
-### 중기 (1-2개월)
+### 중기 (3일)
 1. **기능 개선**
    - intelligent_rag_system.py 활성화
    - API 서버 확장
@@ -103,7 +103,7 @@ run_app.py → app.py → simple_image_analyzer.py (우선)
    - 다중 모델 지원
    - 분산 처리
 
-### 장기 (3-6개월)
+### 장기 (5일)
 1. **서비스화**
    - SaaS 전환
    - 멀티테넌시

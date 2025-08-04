@@ -18,6 +18,7 @@ from config import Config
 from llm_client import LLMClient
 from rag_system import RAGSystem, SearchResult
 from services import WebSearchService, ResponseGenerator
+from intelligent_rag_adapter import IntelligentRAGAdapter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -69,6 +70,9 @@ class ChatService:
         )
         self.web_search = WebSearchService(config.web_search)
         self.response_generator = ResponseGenerator(config.web_search)
+        
+        # Intelligent RAG 어댑터 초기화
+        self.intelligent_adapter = IntelligentRAGAdapter(config, llm_client)
         
         # 이미지 분석기 초기화 (선택적)
         self.image_analyzer = None
@@ -148,6 +152,23 @@ class ChatService:
             return "질문을 입력해주세요."
         
         try:
+            # Intelligent RAG 사용 여부 결정
+            context = {
+                'conversation_history': history,
+                'image': image
+            }
+            
+            use_intelligent = self.intelligent_adapter.should_use_intelligent(question, context)
+            
+            if use_intelligent:
+                logger.info("Using Intelligent RAG for complex query")
+                try:
+                    result = self.intelligent_adapter.process_sync(question, context)
+                    return result.get('response', "죄송합니다. 응답을 생성할 수 없습니다.")
+                except Exception as e:
+                    logger.error(f"Intelligent RAG failed, falling back to standard: {e}")
+            
+            # 표준 처리 (기존 로직)
             # 이미지 분석 (이미지가 있는 경우)
             image_context = None
             original_question = question  # 원본 질문 저장

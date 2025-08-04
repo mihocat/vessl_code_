@@ -25,7 +25,7 @@ from modular_rag_system import (
     ProcessingContext,
     QueryType
 )
-from universal_ocr_pipeline import DomainAdaptiveOCR
+# OCR pipeline import는 런타임에 처리
 
 logger = logging.getLogger(__name__)
 
@@ -197,12 +197,21 @@ class IntelligentQueryProcessor:
 class IntelligentRAGOrchestrator:
     """지능형 RAG 오케스트레이터"""
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Any, llm_client: Any = None):
         """초기화"""
         self.config = config
+        self.llm_client = llm_client
         self.query_processor = IntelligentQueryProcessor()
         self.knowledge_orchestrator = UniversalKnowledgeOrchestrator()
-        self.ocr_pipeline = DomainAdaptiveOCR()
+        
+        # OCR 파이프라인은 조건부 초기화
+        self.ocr_pipeline = None
+        try:
+            # OCR pipeline import는 런타임에 처리
+            self.ocr_pipeline = DomainAdaptiveOCR()
+        except ImportError:
+            logger.warning("OCR pipeline not available")
+        
         self.rag_pipeline = ModularRAGPipeline(config)
         self.cache = {}  # 간단한 캐시
         self.executor = ThreadPoolExecutor(max_workers=4)
@@ -240,8 +249,14 @@ class IntelligentRAGOrchestrator:
         
         # 결과 통합
         intelligent_context = results[0] if not isinstance(results[0], Exception) else None
-        image_analysis = results[1] if len(results) > 1 and not isinstance(results[1], Exception) else None
-        initial_search = results[2 if image else 1] if len(results) > (2 if image else 1) else None
+        image_analysis = None
+        initial_search = None
+        
+        if image:
+            image_analysis = results[1] if len(results) > 1 and not isinstance(results[1], Exception) else None
+            initial_search = results[2] if len(results) > 2 and not isinstance(results[2], Exception) else None
+        else:
+            initial_search = results[1] if len(results) > 1 and not isinstance(results[1], Exception) else None
         
         # 지능형 처리
         final_result = await self._intelligent_processing(
