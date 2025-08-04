@@ -54,11 +54,19 @@ class RealOCRSystem:
             
             # 2. PaddleOCR (한국어, 영어)
             try:
-                self.engines['paddleocr'] = PaddleOCR(
-                    use_angle_cls=True,
-                    lang='korean',
-                    use_gpu=torch.cuda.is_available()
-                )
+                # PaddleOCR 파라미터 수정 (use_gpu 대신 gpu_id 사용)
+                if torch.cuda.is_available():
+                    self.engines['paddleocr'] = PaddleOCR(
+                        use_angle_cls=True,
+                        lang='korean',
+                        gpu_id=0  # GPU ID 지정
+                    )
+                else:
+                    self.engines['paddleocr'] = PaddleOCR(
+                        use_angle_cls=True,
+                        lang='korean',
+                        gpu_id=-1  # CPU 사용
+                    )
                 logger.info("PaddleOCR initialized")
             except Exception as e:
                 logger.warning(f"PaddleOCR initialization failed: {e}")

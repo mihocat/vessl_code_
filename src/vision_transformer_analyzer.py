@@ -404,6 +404,20 @@ class Florence2ImageAnalyzer:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = None  # 호환성을 위해 추가
         self.processor = None  # 호환성을 위해 추가
+        self._initialized = False
+        
+        # 동기적으로 초기화 시도
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.analyzer.initialize())
+            loop.close()
+            self._initialized = True
+            logger.info("Florence2ImageAnalyzer (Vision Transformer) initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Vision Transformer: {e}")
+            self._initialized = False
         
     def analyze_image(self, image, task="<OCR>", text_input=None):
         """동기 인터페이스 (Florence-2 호환)"""

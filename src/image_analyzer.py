@@ -461,10 +461,20 @@ class MultimodalRAGService:
             # 이미지 분석
             try:
                 # 간단한 캡션 생성 (토큰 절약)
-                caption = self.image_analyzer.generate_caption(image, detail_level="simple")
+                caption_result = self.image_analyzer.generate_caption(image, detail_level="simple")
+                # generate_caption이 튜플을 반환하는 경우 처리
+                if isinstance(caption_result, tuple):
+                    caption = caption_result[0] if caption_result else ""
+                else:
+                    caption = caption_result
                 
                 # OCR 텍스트 추출
-                ocr_text = self.image_analyzer.extract_text(image)
+                ocr_result = self.image_analyzer.extract_text(image)
+                # extract_text가 튜플을 반환하는 경우 처리
+                if isinstance(ocr_result, tuple):
+                    ocr_text = ocr_result[0] if ocr_result else ""
+                else:
+                    ocr_text = ocr_result
                 
                 # 수식이 포함된 경우에도 일반 OCR 사용 (더 안정적)
                 # analyze_formula는 더 복잡하고 오류가 발생하기 쉬움
