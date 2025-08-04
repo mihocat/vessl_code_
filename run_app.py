@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Application Runner - Simplified single mode
-애플리케이션 실행기 - 단순화된 단일 모드
+Application Runner - Enhanced version with improved multimodal processing
+애플리케이션 실행기 - 향상된 멀티모달 처리 버전
 """
 
 import sys
@@ -35,25 +35,39 @@ def main():
         "--mode",
         type=str,
         default="auto",
-        help="호환성을 위해 유지 (무시됨)"
+        help="실행 모드 (auto, standard, enhanced)"
+    )
+    parser.add_argument(
+        "--use-enhanced",
+        action="store_true",
+        help="향상된 멀티모달 처리 사용"
     )
     
     args = parser.parse_args()
     
-    # 표준 앱 실행
+    # 환경 변수로 향상된 모드 설정 가능
+    use_enhanced = args.use_enhanced or os.environ.get("USE_ENHANCED_APP", "true").lower() == "true"
+    
+    # 앱 실행
     try:
-        logger.info("Starting application...")
-        from app import main as app_main
+        if use_enhanced:
+            logger.info("Starting enhanced application with improved multimodal processing...")
+            from app_v2 import main as app_main
+        else:
+            logger.info("Starting standard application...")
+            from app import main as app_main
         
         # sys.argv 백업
         original_argv = sys.argv
         
+        # 새로운 argv 설정
         sys.argv = ["app.py"]
         if args.server_port != 7860:
             sys.argv.extend(["--server-port", str(args.server_port)])
         if args.share:
             sys.argv.append("--share")
         
+        # 앱 실행
         app_main()
         
         # sys.argv 복원
@@ -61,6 +75,7 @@ def main():
             
     except Exception as e:
         logger.error(f"Failed to start application: {e}")
+        logger.exception("Detailed error:")
         sys.exit(1)
 
 
