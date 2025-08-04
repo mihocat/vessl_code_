@@ -25,11 +25,18 @@ logger = logging.getLogger(__name__)
 try:
     # 새로운 Vision Transformer 분석기 시도
     from vision_transformer_analyzer import Florence2ImageAnalyzer
-    logger.info("Using Vision Transformer Analyzer")
-except ImportError:
-    # 기존 분석기로 폴백
-    from new_image_analyzer import Florence2ImageAnalyzer
-    logger.info("Using Real OCR Analyzer")
+    logger.info("Attempting to use Vision Transformer Analyzer")
+except ImportError as e:
+    logger.warning(f"Vision Transformer import failed: {e}")
+    try:
+        # 기존 분석기로 폴백
+        from new_image_analyzer import Florence2ImageAnalyzer
+        logger.info("Using Real OCR Analyzer as fallback")
+    except ImportError as e2:
+        logger.warning(f"Real OCR import failed: {e2}")
+        # 최종 폴백: 원본 Florence-2
+        from image_analyzer import Florence2ImageAnalyzer
+        logger.info("Using original Florence-2 Analyzer as final fallback")
 from image_analyzer import MultimodalRAGService
 
 

@@ -8,7 +8,7 @@ Florence-2를 대체하는 더 강력한 모델
 import logging
 import torch
 import numpy as np
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, Tuple
 from PIL import Image
 import asyncio
 from transformers import (
@@ -280,6 +280,7 @@ class HybridImageAnalyzer:
         self.vision_analyzer = VisionTransformerAnalyzer(model_type="blip")
         self.ocr_system = None  # RealOCRSystem will be injected
         self.initialized = False
+        self._init_lock = asyncio.Lock()  # 초기화 동시성 제어
     
     async def initialize(self, ocr_system=None):
         """초기화"""
@@ -311,7 +312,9 @@ class HybridImageAnalyzer:
     ) -> Dict[str, Any]:
         """하이브리드 이미지 분석"""
         if not self.initialized:
-            await self.initialize()
+            async with self._init_lock:
+                if not self.initialized:  # 이중 체크
+                    await self.initialize()
         
         try:
             # 병렬 분석
@@ -398,6 +401,9 @@ class Florence2ImageAnalyzer:
     def __init__(self, model_id: str = "microsoft/Florence-2-large"):
         self.analyzer = HybridImageAnalyzer()
         self.model_id = model_id  # 호환성을 위해 유지
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model = None  # 호환성을 위해 추가
+        self.processor = None  # 호환성을 위해 추가
         
     def analyze_image(self, image, task="<OCR>", text_input=None):
         """동기 인터페이스 (Florence-2 호환)"""
@@ -409,8 +415,10 @@ class Florence2ImageAnalyzer:
             "<OCR>": "ocr",
             "<CAPTION>": "caption",
             "<DETAILED_CAPTION>": "electrical",
+            "<MORE_DETAILED_CAPTION>": "electrical",
             "<OD>": "electrical",
-            "<DENSE_REGION_CAPTION>": "comprehensive"
+            "<DENSE_REGION_CAPTION>": "comprehensive",
+            "<OCR_WITH_REGION>": "ocr"
         }
         
         mapped_task = task_map.get(task, "electrical")
@@ -422,9 +430,204 @@ class Florence2ImageAnalyzer:
             result = loop.run_until_complete(
                 self.analyzer.analyze_image(image, mapped_task, text_input)
             )
-            return result
+            
+            # Florence-2 호환 형식으로 변환
+            if "caption" in result or "ocr_text" in result or "text" in result:
+                return {
+                    "task": task,
+                    "result": result.get("caption") or result.get("ocr_text") or result.get("text", ""),
+                    "success": True
+                }
+            else:
+                return {
+                    "task": task,
+                    "result": "",
+                    "success": False,
+                    "error": result.get("error", "Unknown error")
+                }
+        except Exception as e:
+            logger.error(f"analyze_image failed: {e}")
+            return {
+                "task": task,
+                "result": "",
+                "success": False,
+                "error": str(e)
+            }
         finally:
             loop.close()
+    
+    def generate_caption(self, image: Union[Image.Image, str, np.ndarray]) -> Tuple[str, Dict[str, Any]]:
+        """
+        이미지 캡션 생성 (Florence-2 호환)
+        
+        Returns:
+            Tuple[str, Dict]: (캡션 텍스트, 추가 정보)
+        """
+        result = self.analyze_image(image, task="<CAPTION>")
+        caption = result.get("result", "")
+        return caption, {"confidence": 0.9 if result.get("success") else 0.1}
+    
+    def extract_text(self, image: Union[Image.Image, str, np.ndarray]) -> Tuple[str, List[Dict]]:
+        """
+        이미지에서 텍스트 추출 (OCR)
+        
+        Returns:
+            Tuple[str, List[Dict]]: (추출된 텍스트, 영역 정보)
+        """
+        result = self.analyze_image(image, task="<OCR>")
+        text = result.get("result", "")
+        regions = []  # Vision Transformer는 영역 정보를 제공하지 않음
+        return text, regions
+    
+    def extract_text_simple(self, image: Union[Image.Image, str, bytes]) -> str:
+        """
+        이미지에서 텍스트 추출 (OCR)
+        
+        Args:
+            image: 분석할 이미지
+            
+        Returns:
+            추출된 텍스트
+        """
+        result = self.analyze_image(image, task="<OCR>")
+        if result.get("success") and result.get("result"):
+            text = result["result"]
+            # OCR 결과 정리
+            if isinstance(text, str):
+                import re
+                
+                # 전기공학 관련 유효한 패턴 추출
+                valid_patterns = [
+                    r'\b\d+(?:\.\d+)?\s*(?:k|m|M|G)?(?:W|VA|V|A|Hz|Ω|ohm|F|H|s|m|Wb|T|°C)\b',
+                    r'\b[VPIRQSZCLFXY][a-z0-9_]*\b',
+                    r'[=+\-*/()\[\]{}|∠φθ°]',
+                    r'\b\d+/\d+\b',
+                    r'\b\d+:\d+\b',
+                ]
+                
+                # 유효한 부분 추출
+                valid_parts = []
+                for pattern in valid_patterns:
+                    matches = re.findall(pattern, text)
+                    valid_parts.extend(matches)
+                
+                if valid_parts:
+                    # 중복 제거하고 순서 유지
+                    seen = set()
+                    unique_parts = []
+                    for part in valid_parts:
+                        if part not in seen:
+                            seen.add(part)
+                            unique_parts.append(part)
+                    
+                    text = ' '.join(unique_parts)
+                
+                # 길이 제한
+                if len(text) > 200:
+                    text = text[:200] + "..."
+                
+            return text
+        return ""
+    
+    def generate_caption(
+        self, 
+        image: Union[Image.Image, str, bytes],
+        detail_level: str = "simple"
+    ) -> str:
+        """
+        이미지 캡션 생성
+        
+        Args:
+            image: 분석할 이미지
+            detail_level: 상세도 수준 ("simple", "detailed", "very_detailed")
+            
+        Returns:
+            생성된 캡션
+        """
+        task_map = {
+            "simple": "<CAPTION>",
+            "detailed": "<DETAILED_CAPTION>",
+            "very_detailed": "<MORE_DETAILED_CAPTION>"
+        }
+        
+        task = task_map.get(detail_level, "<CAPTION>")
+        result = self.analyze_image(image, task=task)
+        
+        if result.get("success") and result.get("result"):
+            return result["result"]
+        return "이미지 분석에 실패했습니다."
+    
+    def detect_objects(
+        self, 
+        image: Union[Image.Image, str, bytes],
+        object_name: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        객체 검출
+        
+        Args:
+            image: 분석할 이미지
+            object_name: 검출할 특정 객체명 (없으면 모든 객체)
+            
+        Returns:
+            검출된 객체 리스트
+        """
+        # Vision Transformer는 객체 검출을 직접 지원하지 않으므로 빈 리스트 반환
+        return []
+    
+    def analyze_formula(self, image: Union[Image.Image, str, bytes]) -> Dict[str, Any]:
+        """
+        수식 분석 (OCR + 상세 설명)
+        
+        Args:
+            image: 수식이 포함된 이미지
+            
+        Returns:
+            수식 분석 결과
+        """
+        # OCR로 수식 텍스트 추출
+        ocr_result = self.analyze_image(image, task="<OCR_WITH_REGION>")
+        
+        # 상세 캡션으로 수식 설명
+        caption_result = self.analyze_image(image, task="<DETAILED_CAPTION>")
+        
+        analysis = {
+            "formula_text": "",
+            "description": "",
+            "regions": [],
+            "success": False
+        }
+        
+        if ocr_result.get("success"):
+            analysis["formula_text"] = ocr_result.get("result", "")
+        
+        if caption_result.get("success"):
+            analysis["description"] = caption_result.get("result", "")
+        
+        analysis["success"] = ocr_result.get("success", False) or caption_result.get("success", False)
+        
+        return analysis
+    
+    def batch_analyze(
+        self, 
+        images: List[Union[Image.Image, str, bytes]],
+        task: str = "<DETAILED_CAPTION>"
+    ) -> List[Dict[str, Any]]:
+        """
+        여러 이미지 일괄 분석
+        
+        Args:
+            images: 이미지 리스트
+            task: 수행할 작업
+            
+        Returns:
+            분석 결과 리스트
+        """
+        results = []
+        for image in images:
+            result = self.analyze_image(image, task=task)
+            results.append(result)
+        return results
 
 
 # 사용 예시
