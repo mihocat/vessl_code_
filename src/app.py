@@ -18,7 +18,8 @@ from config import Config
 from llm_client import LLMClient
 from rag_system import RAGSystem, SearchResult
 from services import WebSearchService, ResponseGenerator
-from image_analyzer import Florence2ImageAnalyzer, MultimodalRAGService
+from new_image_analyzer import Florence2ImageAnalyzer
+from image_analyzer import MultimodalRAGService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

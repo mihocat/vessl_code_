@@ -40,6 +40,7 @@ accelerate>=0.25.0
 easyocr>=1.7.0
 paddlepaddle==2.6.0
 paddleocr>=2.7.0
+pytesseract>=0.3.10
 # pix2tex>=0.1.2  # Temporarily disabled due to timm version conflict
 
 # Document Understanding (optional - install separately if needed)
