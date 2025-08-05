@@ -14,9 +14,10 @@ logger = logging.getLogger(__name__)
 def load_openai_key_from_storage():
     """
     VESSL Storage에서 OpenAI API 키 로드
-    경로: /dataset/o_api
+    경로: /apikey/o_api 또는 /dataset/o_api
     """
     storage_paths = [
+        "/apikey/o_api",  # VESSL Storage APIkey 볼륨
         "/dataset/o_api",  # VESSL Storage 경로
         "./o_api",  # 로컬 테스트용
         "../o_api"   # 대체 경로
