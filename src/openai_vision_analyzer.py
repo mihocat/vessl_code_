@@ -109,100 +109,100 @@ class OpenAIVisionAnalyzer:
                 
                 # API 호출
                 response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": user_prompt
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{base64_image}"
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": system_prompt
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": user_prompt
+                                },
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/png;base64,{base64_image}"
+                                    }
                                 }
-                            }
-                        ]
-                    }
-                ],
-                max_tokens=self.max_tokens,
-                temperature=self.temperature
-            )
-            
-            # 응답 파싱
-            content = response.choices[0].message.content
-            
-            # 간단한 파싱 (실제로는 더 정교한 파싱 필요)
-            result = {
-                "success": True,
-                "raw_response": content,
-                "text_content": content,
-                "description": content,
-                "formulas": [],
-                "model": self.model,
-                "usage": {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens
-                }
-            }
-            
-            # 텍스트와 수식 분리 시도
-            if "LaTeX" in content or "수식" in content or "$$" in content or "\\(" in content:
-                result["has_formula"] = True
-                # 간단한 LaTeX 수식 추출 (실제로는 더 정교한 파싱 필요)
-                import re
-                latex_patterns = [
-                    r'\$\$(.+?)\$\$',  # $$...$$
-                    r'\\\((.+?)\\\)',  # \(...\)
-                    r'\\\[(.+?)\\\]'   # \[...\]
-                ]
-                for pattern in latex_patterns:
-                    matches = re.findall(pattern, content, re.DOTALL)
-                    for match in matches:
-                        result["formulas"].append({
-                            "latex": match.strip(),
-                            "confidence": 0.8
-                        })
-            else:
-                result["has_formula"] = False
-            
-            logger.info(f"OpenAI Vision analysis completed. Tokens used: {response.usage.total_tokens}")
-            
-            return result
+                            ]
+                        }
+                    ],
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature
+                )
                 
-        except Exception as e:
-            error_str = str(e)
-            logger.error(f"OpenAI Vision API attempt {attempt + 1} failed: {error_str}")
-            
-            # 권한 오류나 할당량 오류는 재시도하지 않음
-            if "401" in error_str or "insufficient" in error_str.lower() or "quota" in error_str.lower():
-                logger.error("Authentication or quota error - not retrying")
-                return {
-                    "success": False,
-                    "error": error_str,
-                    "raw_response": ""
+                # 응답 파싱
+                content = response.choices[0].message.content
+                
+                # 간단한 파싱 (실제로는 더 정교한 파싱 필요)
+                result = {
+                    "success": True,
+                    "raw_response": content,
+                    "text_content": content,
+                    "description": content,
+                    "formulas": [],
+                    "model": self.model,
+                    "usage": {
+                        "prompt_tokens": response.usage.prompt_tokens,
+                        "completion_tokens": response.usage.completion_tokens,
+                        "total_tokens": response.usage.total_tokens
+                    }
                 }
-            
-            # 마지막 시도가 아니라면 대기 후 재시도
-            if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)  # 지수 백오프
-                logger.info(f"Waiting {delay}s before retry...")
-                time.sleep(delay)
-            else:
-                # 모든 재시도 실패
-                logger.error(f"All {max_retries} attempts failed")
-                return {
-                    "success": False,
-                    "error": error_str,
-                    "raw_response": ""
-                }
+                
+                # 텍스트와 수식 분리 시도
+                if "LaTeX" in content or "수식" in content or "$$" in content or "\\(" in content:
+                    result["has_formula"] = True
+                    # 간단한 LaTeX 수식 추출 (실제로는 더 정교한 파싱 필요)
+                    import re
+                    latex_patterns = [
+                        r'\$\$(.+?)\$\$',  # $$...$$
+                        r'\\\((.+?)\\\)',  # \(...\)
+                        r'\\\[(.+?)\\\]'   # \[...\]
+                    ]
+                    for pattern in latex_patterns:
+                        matches = re.findall(pattern, content, re.DOTALL)
+                        for match in matches:
+                            result["formulas"].append({
+                                "latex": match.strip(),
+                                "confidence": 0.8
+                            })
+                else:
+                    result["has_formula"] = False
+                
+                logger.info(f"OpenAI Vision analysis completed. Tokens used: {response.usage.total_tokens}")
+                
+                return result
+                
+            except Exception as e:
+                error_str = str(e)
+                logger.error(f"OpenAI Vision API attempt {attempt + 1} failed: {error_str}")
+                
+                # 권한 오류나 할당량 오류는 재시도하지 않음
+                if "401" in error_str or "insufficient" in error_str.lower() or "quota" in error_str.lower():
+                    logger.error("Authentication or quota error - not retrying")
+                    return {
+                        "success": False,
+                        "error": error_str,
+                        "raw_response": ""
+                    }
+                
+                # 마지막 시도가 아니라면 대기 후 재시도
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # 지수 백오프
+                    logger.info(f"Waiting {delay}s before retry...")
+                    time.sleep(delay)
+                else:
+                    # 모든 재시도 실패
+                    logger.error(f"All {max_retries} attempts failed")
+                    return {
+                        "success": False,
+                        "error": error_str,
+                        "raw_response": ""
+                    }
     
     def process_multimodal_query(
         self,

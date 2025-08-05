@@ -38,8 +38,9 @@ class RobustLLMClient:
         self.mode_history = []
         
         # Fallback configuration
-        self.enable_fallback = os.getenv("ENABLE_OPENAI_FALLBACK", "true").lower() == "true"
+        self.enable_fallback = os.getenv("ENABLE_OPENAI_FALLBACK", "false").lower() == "true"  # API 권한 문제로 비활성화
         self.fallback_delay = int(os.getenv("FALLBACK_DELAY", "180"))
+        self.api_permission_error = False  # API 권한 오류 플래그
         
         logger.info(f"RobustLLMClient initialized - Fallback: {self.enable_fallback}")
         
