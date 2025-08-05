@@ -142,6 +142,9 @@ class AppConfig:
 class Config:
     """전체 설정 관리"""
     def __init__(self):
+        # API 키 설정 (Storage 우선)
+        self._setup_api_keys()
+        
         self.llm = LLMConfig()
         self.rag = RAGConfig()
         self.dataset = DatasetConfig()
@@ -151,6 +154,14 @@ class Config:
         
         # 환경 변수 오버라이드
         self._load_from_env()
+    
+    def _setup_api_keys(self):
+        """API 키 초기 설정"""
+        try:
+            from api_key_loader import setup_api_keys
+            setup_api_keys()
+        except Exception as e:
+            print(f"Warning: Failed to load API keys from storage: {e}")
     
     def _load_from_env(self):
         """환경 변수에서 설정 로드"""
