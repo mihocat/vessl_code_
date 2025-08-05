@@ -112,6 +112,33 @@ class OpenAIConfig:
 
 
 @dataclass
+class NextGenConfig:
+    """차세대 시스템 설정"""
+    # Multi-Agent 설정
+    enable_multi_agent: bool = True
+    agent_timeout: int = 30
+    max_parallel_agents: int = 4
+    
+    # Intent Analysis 설정
+    enable_intent_analysis: bool = True
+    intent_confidence_threshold: float = 0.8
+    
+    # Memory System 설정
+    enable_memory_system: bool = True
+    memory_retention_days: int = 30
+    max_conversation_history: int = 100
+    
+    # Adaptive Response 설정
+    enable_adaptive_response: bool = True
+    response_personalization: bool = True
+    
+    # Performance 설정
+    enable_caching: bool = True
+    cache_ttl_seconds: int = 3600
+    max_response_time: int = 15
+
+
+@dataclass
 class AppConfig:
     """애플리케이션 설정"""
     server_name: str = "0.0.0.0"
@@ -119,9 +146,18 @@ class AppConfig:
     share: bool = False
     
     # UI 설정
-    title: str = "AI 테스트"
+    title: str = "🚀 Next-Generation AI Chatbot"
     description: str = """
-    # AI 테스트
+    # 🚀 Next-Generation AI Chatbot
+    
+    **Advanced Multi-Agent System with Vision, RAG, and Reasoning**
+    
+    ✨ **Features:**
+    - 🎯 Intelligent Intent Analysis
+    - 🤖 Multi-Agent Collaboration  
+    - 👁️ Advanced Vision Processing
+    - 🧠 Adaptive Memory System
+    - 🔄 Chain-of-Thought Reasoning
     """
     
     # 이미지 분석 설정
@@ -134,9 +170,11 @@ class AppConfig:
     def __post_init__(self):
         if self.example_questions is None:
             self.example_questions = [
-                "다산에듀는 너의 친구입니까?",
-                "회로도에 대해서 알려줘.",
-                "객체지향 프로그래밍의 특징은?"
+                "이미지의 수식을 분석해주세요",
+                "전력 계산 방법을 단계별로 설명해주세요",
+                "라플라스 변환의 정의와 성질을 알려주세요",
+                "이 회로도의 특징을 분석해주세요",
+                "복소수와 전기회로의 관계를 설명해주세요"
             ]
 
 
@@ -152,6 +190,7 @@ class Config:
         self.web_search = WebSearchConfig()
         self.openai = OpenAIConfig()
         self.app = AppConfig()
+        self.next_gen = NextGenConfig()
         
         # 환경 변수 오버라이드
         self._load_from_env()

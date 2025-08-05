@@ -301,9 +301,24 @@ class EnhancedMultimodalProcessor:
         if formula_content:
             formula_text = "\n감지된 수식:\n"
             for i, formula in enumerate(formula_content, 1):
-                formula_text += f"{i}. {formula.latex}"
-                if formula.solution and formula.solution.get('result'):
-                    formula_text += f" = {formula.solution['result']}"
+                # OpenAI Vision API는 딕셔너리 형태로 반환
+                if isinstance(formula, dict):
+                    latex_text = formula.get('latex', str(formula))
+                else:
+                    latex_text = getattr(formula, 'latex', str(formula))
+                
+                formula_text += f"{i}. {latex_text}"
+                
+                # 해결된 결과 추가
+                if isinstance(formula, dict):
+                    solution = formula.get('solution')
+                elif hasattr(formula, 'solution'):
+                    solution = formula.solution
+                else:
+                    solution = None
+                    
+                if solution and isinstance(solution, dict) and solution.get('result'):
+                    formula_text += f" = {solution['result']}"
                 formula_text += "\n"
             context_parts.append(formula_text)
         
@@ -367,7 +382,7 @@ class EnhancedMultimodalProcessor:
             result['image_analysis'] = {
                 'caption': multimodal_result.image_caption or "[캡션 생성 실패]",
                 'ocr_text': multimodal_result.text_content,
-                'formulas': [f.latex for f in multimodal_result.formula_content],
+                'formulas': [f.get('latex', str(f)) if isinstance(f, dict) else getattr(f, 'latex', str(f)) for f in multimodal_result.formula_content],
                 'confidence': multimodal_result.metadata.get('ocr_confidence', 0)
             }
             
@@ -380,7 +395,10 @@ class EnhancedMultimodalProcessor:
                 solved_formulas = [f for f in multimodal_result.formula_content if f.solution and f.solution.get('result')]
                 if solved_formulas:
                     result['formula_solutions'] = {
-                        f.latex: f.solution['result'] for f in solved_formulas
+                        (f.get('latex', str(f)) if isinstance(f, dict) else getattr(f, 'latex', str(f))): 
+                        (f.get('solution', {}).get('result') if isinstance(f, dict) else 
+                         (f.solution.get('result') if hasattr(f, 'solution') and isinstance(f.solution, dict) else None))
+                        for f in solved_formulas if f
                     }
             
         except Exception as e:
