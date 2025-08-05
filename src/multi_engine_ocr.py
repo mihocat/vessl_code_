@@ -187,7 +187,6 @@ class PaddleOCREngine(OCREngine):
         self.ocr = PaddleOCR(
             use_angle_cls=True,
             lang='korean',
-            use_gpu=True,
             show_log=False
         )
     
