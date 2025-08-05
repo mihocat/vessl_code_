@@ -94,6 +94,24 @@ class WebSearchConfig:
 
 
 @dataclass
+class OpenAIConfig:
+    """OpenAI API 설정"""
+    api_key: Optional[str] = None
+    vision_model: str = "gpt-4o"  # gpt-4-vision-preview, gpt-4o, gpt-4o-mini
+    text_model: str = "gpt-4-turbo-preview"  # gpt-4-turbo, gpt-3.5-turbo
+    max_tokens: int = 1000
+    temperature: float = 0.2
+    use_vision_api: bool = False  # Vision API 사용 여부
+    use_for_llm: bool = False  # LLM 응답 생성에 사용 여부
+    
+    def __post_init__(self):
+        """초기화 후 처리"""
+        # 환경 변수에서 API 키 로드
+        if not self.api_key:
+            self.api_key = os.getenv("OPENAI_API_KEY")
+
+
+@dataclass
 class AppConfig:
     """애플리케이션 설정"""
     server_name: str = "0.0.0.0"
@@ -128,6 +146,7 @@ class Config:
         self.rag = RAGConfig()
         self.dataset = DatasetConfig()
         self.web_search = WebSearchConfig()
+        self.openai = OpenAIConfig()
         self.app = AppConfig()
         
         # 환경 변수 오버라이드
@@ -160,6 +179,18 @@ class Config:
         # 서버 설정
         if os.getenv("SERVER_PORT"):
             self.app.server_port = int(os.getenv("SERVER_PORT"))
+        
+        # OpenAI 설정
+        if os.getenv("OPENAI_API_KEY"):
+            self.openai.api_key = os.getenv("OPENAI_API_KEY")
+        if os.getenv("OPENAI_VISION_MODEL"):
+            self.openai.vision_model = os.getenv("OPENAI_VISION_MODEL")
+        if os.getenv("OPENAI_TEXT_MODEL"):
+            self.openai.text_model = os.getenv("OPENAI_TEXT_MODEL")
+        if os.getenv("USE_OPENAI_VISION"):
+            self.openai.use_vision_api = os.getenv("USE_OPENAI_VISION").lower() == "true"
+        if os.getenv("USE_OPENAI_LLM"):
+            self.openai.use_for_llm = os.getenv("USE_OPENAI_LLM").lower() == "true"
 
 
 # 싱글톤 인스턴스

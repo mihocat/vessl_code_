@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+OpenAI Vision API를 사용한 이미지 분석기
+"""
+
+import logging
+import base64
+from typing import Dict, Any, Optional, Union
+from PIL import Image
+import io
+import os
+from openai import OpenAI
+
+logger = logging.getLogger(__name__)
+
+
+class OpenAIVisionAnalyzer:
+    """OpenAI Vision API 기반 이미지 분석기"""
+    
+    def __init__(self, config=None):
+        """
+        초기화
+        
+        Args:
+            config: Config 객체 (없으면 기본 config 사용)
+        """
+        if config is None:
+            from config import config as default_config
+            config = default_config
+        
+        self.config = config.openai
+        
+        if not self.config.api_key:
+            raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable.")
+        
+        self.client = OpenAI(api_key=self.config.api_key)
+        self.model = self.config.vision_model
+        self.max_tokens = self.config.max_tokens
+        self.temperature = self.config.temperature
+        
+        logger.info(f"OpenAI Vision Analyzer initialized with model: {self.model}")
+    
+    def _encode_image(self, image: Union[Image.Image, str]) -> str:
+        """이미지를 base64로 인코딩"""
+        if isinstance(image, str):
+            # 파일 경로인 경우
+            with open(image, "rb") as image_file:
+                return base64.b64encode(image_file.read()).decode('utf-8')
+        else:
+            # PIL Image인 경우
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            return base64.b64encode(buffered.getvalue()).decode('utf-8')
+    
+    def analyze_image(
+        self, 
+        image: Union[Image.Image, str],
+        question: Optional[str] = None,
+        extract_text: bool = True,
+        detect_formulas: bool = True,
+        max_tokens: int = 1000
+    ) -> Dict[str, Any]:
+        """
+        OpenAI Vision API로 이미지 분석
+        
+        Args:
+            image: 분석할 이미지
+            question: 사용자 질문
+            extract_text: 텍스트 추출 여부
+            detect_formulas: 수식 감지 여부
+            max_tokens: 최대 토큰 수
+            
+        Returns:
+            분석 결과
+        """
+        try:
+            # 이미지 인코딩
+            base64_image = self._encode_image(image)
+            
+            # 프롬프트 구성
+            system_prompt = "You are an expert in analyzing images, especially technical documents with Korean text and mathematical formulas."
+            
+            user_prompt_parts = []
+            if question:
+                user_prompt_parts.append(f"User question: {question}")
+            
+            user_prompt_parts.append("Please analyze this image and provide:")
+            
+            if extract_text:
+                user_prompt_parts.append("1. All text content (especially Korean text)")
+            
+            if detect_formulas:
+                user_prompt_parts.append("2. Any mathematical formulas (provide in LaTeX format)")
+            
+            user_prompt_parts.append("3. A brief description of the image")
+            user_prompt_parts.append("\nRespond in Korean.")
+            
+            user_prompt = "\n".join(user_prompt_parts)
+            
+            # API 호출
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": user_prompt
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{base64_image}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=self.max_tokens,
+                temperature=self.temperature
+            )
+            
+            # 응답 파싱
+            content = response.choices[0].message.content
+            
+            # 간단한 파싱 (실제로는 더 정교한 파싱 필요)
+            result = {
+                "success": True,
+                "raw_response": content,
+                "model": self.model,
+                "usage": {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+            }
+            
+            # 텍스트와 수식 분리 시도
+            if "LaTeX" in content or "수식" in content:
+                result["has_formula"] = True
+            else:
+                result["has_formula"] = False
+            
+            logger.info(f"OpenAI Vision analysis completed. Tokens used: {response.usage.total_tokens}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"OpenAI Vision analysis failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "raw_response": ""
+            }
+    
+    def process_multimodal_query(
+        self,
+        question: str,
+        image: Optional[Union[Image.Image, str]] = None
+    ) -> Dict[str, Any]:
+        """
+        멀티모달 쿼리 처리 (기존 시스템과의 호환성)
+        
+        Args:
+            question: 사용자 질문
+            image: 이미지 (선택적)
+            
+        Returns:
+            처리 결과
+        """
+        if image is None:
+            return {
+                "combined_query": question,
+                "image_analysis": None
+            }
+        
+        # 이미지 분석
+        analysis = self.analyze_image(image, question)
+        
+        if analysis["success"]:
+            return {
+                "combined_query": f"{question}\n\n[이미지 분석 결과]\n{analysis['raw_response']}",
+                "image_analysis": {
+                    "content": analysis["raw_response"],
+                    "has_formula": analysis.get("has_formula", False),
+                    "tokens_used": analysis["usage"]["total_tokens"]
+                }
+            }
+        else:
+            return {
+                "combined_query": question,
+                "image_analysis": {
+                    "error": analysis["error"]
+                }
+            }
+
+
+# 사용 예시
+if __name__ == "__main__":
+    # config에서 API 키 로드
+    from config import config
+    
+    # API 키가 설정되어 있는지 확인
+    if not config.openai.api_key:
+        print("OPENAI_API_KEY 환경 변수를 설정해주세요.")
+        exit(1)
+    
+    analyzer = OpenAIVisionAnalyzer(config)
+    
+    # 이미지 분석
+    result = analyzer.analyze_image(
+        "test_image.jpg",
+        question="이 이미지의 수식을 설명해주세요"
+    )
+    
+    print(f"모델: {result.get('model')}")
+    print(f"응답: {result.get('raw_response')}")
+    print(f"토큰 사용량: {result.get('usage', {}).get('total_tokens')}")
