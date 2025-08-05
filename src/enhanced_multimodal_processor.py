@@ -171,9 +171,9 @@ class EnhancedMultimodalProcessor:
         if generate_caption and self.image_analyzer:
             try:
                 logger.info("Generating image caption...")
-                caption_result = self.image_analyzer.analyze(image)
-                image_caption = caption_result.get('caption', '')
-                metadata['caption_confidence'] = caption_result.get('confidence', 0)
+                caption_result = self.image_analyzer.analyze_image(image)
+                image_caption = caption_result.get('result', '')
+                metadata['caption_confidence'] = caption_result.get('success', False)
                 metadata['processing_steps'].append('caption_generation')
             except Exception as e:
                 logger.error(f"Caption generation failed: {e}")

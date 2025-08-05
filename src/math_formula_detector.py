@@ -334,21 +334,54 @@ class FormulaRecognizer:
     
     def _text_to_latex(self, text: str) -> str:
         """일반 텍스트를 LaTeX 수식으로 변환"""
+        # 텍스트가 수식이 아닌 일반 텍스트로 보이면 빈 문자열 반환
+        # 날짜 형식이나 일반 영어 단어가 포함된 경우 제외
+        if any(word in text.lower() for word in ['year', 'sep', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'oct', 'nov', 'dec']):
+            logger.info(f"Skipping non-formula text: {text}")
+            return ""
+        
+        # 영어 단어가 많이 포함된 경우 수식이 아닐 가능성이 높음
+        if len(re.findall(r'[a-zA-Z]{5,}', text)) > 1:
+            logger.info(f"Skipping text with long words: {text}")
+            return ""
+        
         # 간단한 변환 규칙
-        latex = text
+        latex = text.strip()
         
         # 기본 연산자 변환
         latex = latex.replace('/', '\\div')
         latex = latex.replace('*', '\\times')
+        latex = latex.replace('×', '\\times')
+        latex = latex.replace('÷', '\\div')
+        latex = latex.replace('±', '\\pm')
+        latex = latex.replace('≥', '\\geq')
+        latex = latex.replace('≤', '\\leq')
+        latex = latex.replace('≠', '\\neq')
+        latex = latex.replace('∞', '\\infty')
+        latex = latex.replace('π', '\\pi')
+        latex = latex.replace('Σ', '\\sum')
+        latex = latex.replace('∫', '\\int')
+        latex = latex.replace('√', '\\sqrt')
+        
+        # 함수 이름
         latex = latex.replace('sqrt', '\\sqrt')
         latex = latex.replace('sum', '\\sum')
         latex = latex.replace('int', '\\int')
+        latex = latex.replace('lim', '\\lim')
+        latex = latex.replace('sin', '\\sin')
+        latex = latex.replace('cos', '\\cos')
+        latex = latex.replace('tan', '\\tan')
+        latex = latex.replace('log', '\\log')
+        latex = latex.replace('ln', '\\ln')
         
         # 지수 표현
         latex = re.sub(r'(\w)\^(\w+)', r'\1^{\2}', latex)
         
         # 아래첨자
         latex = re.sub(r'(\w)_(\w+)', r'\1_{\2}', latex)
+        
+        # 분수 표기
+        latex = re.sub(r'(\d+)/(\d+)', r'\\frac{\1}{\2}', latex)
         
         return latex
     
