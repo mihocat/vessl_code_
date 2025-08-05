@@ -15,7 +15,12 @@ import torch
 import gradio as gr
 
 from config import Config
-from llm_client import LLMClient
+# 조건부 LLM 클라이언트 임포트
+import os
+if os.getenv("USE_OPENAI_LLM", "false").lower() == "true" or os.getenv("SKIP_VLLM", "false").lower() == "true":
+    from llm_client_openai import LLMClient
+else:
+    from llm_client import LLMClient
 from rag_system import RAGSystem, SearchResult
 from services import WebSearchService, ResponseGenerator
 from intelligent_rag_adapter import IntelligentRAGAdapter
