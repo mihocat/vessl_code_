@@ -1,0 +1,10 @@
+# Advanced OCR - Korean specialized
+# Install these only if not using OpenAI Vision API
+easyocr>=1.7.0
+paddlepaddle==2.6.0
+paddleocr>=2.7.0
+pytesseract>=0.3.10
+
+# Document Understanding (optional - install separately if needed)
+# layoutparser[layoutmodels,tesseract]>=0.3.4
+# pdf2image>=1.16.0

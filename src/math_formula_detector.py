@@ -22,13 +22,12 @@ except ImportError:
     SYMPY_AVAILABLE = False
     logging.warning("SymPy not available for formula parsing")
 
-# LaTeX OCR (pix2tex alternative)
-try:
+# 조건부 임포트 사용
+from conditional_imports import TROCR_AVAILABLE
+
+# TrOCR 조건부 임포트
+if TROCR_AVAILABLE:
     from transformers import TrOCRProcessor, VisionEncoderDecoderModel
-    TROCR_AVAILABLE = True
-except ImportError:
-    TROCR_AVAILABLE = False
-    logging.warning("TrOCR not available for formula recognition")
 
 logger = logging.getLogger(__name__)
 

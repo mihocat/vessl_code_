@@ -11,9 +11,20 @@ import torch
 import numpy as np
 from typing import Dict, Any, Optional, List, Union, Tuple
 from PIL import Image
-import easyocr
 import cv2
-from transformers import BlipProcessor, BlipForConditionalGeneration
+
+# 조건부 임포트
+from conditional_imports import EASYOCR_AVAILABLE
+
+if EASYOCR_AVAILABLE:
+    import easyocr
+
+try:
+    from transformers import BlipProcessor, BlipForConditionalGeneration
+    BLIP_AVAILABLE = True
+except ImportError:
+    BLIP_AVAILABLE = False
+    logging.warning("BLIP not available")
 
 logger = logging.getLogger(__name__)
 

@@ -13,27 +13,22 @@ import cv2
 from collections import Counter
 import re
 
-# OCR 엔진들
-try:
-    import pytesseract
-    TESSERACT_AVAILABLE = True
-except ImportError:
-    TESSERACT_AVAILABLE = False
-    logging.warning("Tesseract not available")
+# 조건부 임포트 사용
+from conditional_imports import (
+    EASYOCR_AVAILABLE,
+    PADDLEOCR_AVAILABLE,
+    TESSERACT_AVAILABLE
+)
 
-try:
+# OCR 라이브러리 조건부 임포트
+if EASYOCR_AVAILABLE:
     import easyocr
-    EASYOCR_AVAILABLE = True
-except ImportError:
-    EASYOCR_AVAILABLE = False
-    logging.warning("EasyOCR not available")
 
-try:
+if PADDLEOCR_AVAILABLE:
     from paddleocr import PaddleOCR
-    PADDLEOCR_AVAILABLE = True
-except ImportError:
-    PADDLEOCR_AVAILABLE = False
-    logging.warning("PaddleOCR not available")
+
+if TESSERACT_AVAILABLE:
+    import pytesseract
 
 logger = logging.getLogger(__name__)
 

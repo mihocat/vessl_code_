@@ -53,8 +53,12 @@ class EnhancedChatService:
         self.intelligent_adapter = IntelligentRAGAdapter(config, llm_client)
         
         # 향상된 멀티모달 프로세서 초기화
-        self.multimodal_processor = EnhancedMultimodalProcessor(use_gpu=torch.cuda.is_available())
-        logger.info("Enhanced multimodal processor initialized")
+        use_openai_vision = config.openai.use_vision_api if hasattr(config, 'openai') else False
+        self.multimodal_processor = EnhancedMultimodalProcessor(
+            use_gpu=torch.cuda.is_available(),
+            use_openai_vision=use_openai_vision
+        )
+        logger.info(f"Enhanced multimodal processor initialized (OpenAI Vision: {use_openai_vision})")
         
         # 대화 이력
         self.conversation_history = []

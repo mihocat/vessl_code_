@@ -142,21 +142,44 @@ class EnhancedMultimodalProcessor:
         }
         
         # 1. 텍스트 추출
-        if extract_text and self.ocr_engine:
-            try:
-                logger.info("Extracting text with MultiEngineOCR...")
-                ocr_result = self.ocr_engine.extract_text(image, ensemble_method='voting')
-                text_content = ocr_result.get('text', '')
-                metadata['ocr_confidence'] = ocr_result.get('confidence', 0)
-                metadata['ocr_engines_used'] = ocr_result.get('engines_used', [])
-                metadata['processing_steps'].append('text_extraction')
-                logger.info(f"Text extracted: {len(text_content)} characters")
-            except Exception as e:
-                logger.error(f"Text extraction failed: {e}")
-                metadata['ocr_error'] = str(e)
+        if extract_text:
+            if self.use_openai_vision:
+                # OpenAI Vision API 사용
+                try:
+                    from openai_vision_analyzer import OpenAIVisionAnalyzer
+                    logger.info("Using OpenAI Vision API for text extraction...")
+                    vision_analyzer = OpenAIVisionAnalyzer()
+                    result = vision_analyzer.analyze_image(image, question=question, extract_text=True, detect_formulas=detect_formulas)
+                    
+                    if result['success']:
+                        text_content = result.get('text_content', '')
+                        formula_content = result.get('formulas', [])
+                        image_caption = result.get('description', '')
+                        metadata['processing_method'] = 'openai_vision'
+                        metadata['processing_steps'].append('openai_vision_analysis')
+                        logger.info("OpenAI Vision API analysis completed")
+                    else:
+                        logger.error(f"OpenAI Vision API failed: {result.get('error')}")
+                        metadata['openai_error'] = result.get('error')
+                except Exception as e:
+                    logger.error(f"OpenAI Vision API error: {e}")
+                    metadata['openai_error'] = str(e)
+            elif self.ocr_engine:
+                # 로컬 OCR 엔진 사용
+                try:
+                    logger.info("Extracting text with MultiEngineOCR...")
+                    ocr_result = self.ocr_engine.extract_text(image, ensemble_method='voting')
+                    text_content = ocr_result.get('text', '')
+                    metadata['ocr_confidence'] = ocr_result.get('confidence', 0)
+                    metadata['ocr_engines_used'] = ocr_result.get('engines_used', [])
+                    metadata['processing_steps'].append('text_extraction')
+                    logger.info(f"Text extracted: {len(text_content)} characters")
+                except Exception as e:
+                    logger.error(f"Text extraction failed: {e}")
+                    metadata['ocr_error'] = str(e)
         
-        # 2. 수식 감지 및 인식
-        if detect_formulas and self.formula_processor:
+        # 2. 수식 감지 및 인식 (OpenAI Vision API 사용 시 건너뛰기)
+        if detect_formulas and not self.use_openai_vision and self.formula_processor:
             try:
                 logger.info("Detecting and recognizing formulas...")
                 formula_content = self.formula_processor.process_image(image)
@@ -167,8 +190,8 @@ class EnhancedMultimodalProcessor:
                 logger.error(f"Formula detection failed: {e}")
                 metadata['formula_error'] = str(e)
         
-        # 3. 이미지 캡션 생성
-        if generate_caption and self.image_analyzer:
+        # 3. 이미지 캡션 생성 (OpenAI Vision API 사용 시 건너뛰기)
+        if generate_caption and not self.use_openai_vision and self.image_analyzer:
             try:
                 logger.info("Generating image caption...")
                 caption_result = self.image_analyzer.analyze_image(image)
