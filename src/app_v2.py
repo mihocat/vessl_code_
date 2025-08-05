@@ -555,6 +555,12 @@ def main():
     # 설정 로드
     config = Config()
     
+    # OpenAI API 키 확인 - 없으면 서버 종료
+    if not config.openai.api_key or config.openai.api_key.startswith("sk-fallback"):
+        logger.error("OpenAI API key not properly configured - shutting down server")
+        logger.error("Please configure OPENAI_API_KEY environment variable")
+        sys.exit(1)
+    
     # 명령줄 인자로 오버라이드
     if args.server_port:
         config.app.server_port = args.server_port

@@ -33,8 +33,9 @@ class OpenAIVisionAnalyzer:
         self.config = config.openai
         
         if not self.config.api_key or self.config.api_key.startswith("sk-fallback"):
-            logger.warning("OpenAI API key not properly configured - Vision API will be disabled")
-            self.api_available = False
+            logger.error("OpenAI API key not properly configured - shutting down server")
+            import sys
+            sys.exit(1)
         else:
             self.api_available = True
         
