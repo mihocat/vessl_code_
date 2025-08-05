@@ -142,6 +142,9 @@ class OpenAIVisionAnalyzer:
             result = {
                 "success": True,
                 "raw_response": content,
+                "text_content": content,
+                "description": content,
+                "formulas": [],
                 "model": self.model,
                 "usage": {
                     "prompt_tokens": response.usage.prompt_tokens,
@@ -151,14 +154,28 @@ class OpenAIVisionAnalyzer:
             }
             
             # 텍스트와 수식 분리 시도
-            if "LaTeX" in content or "수식" in content:
+            if "LaTeX" in content or "수식" in content or "$$" in content or "\\(" in content:
                 result["has_formula"] = True
+                # 간단한 LaTeX 수식 추출 (실제로는 더 정교한 파싱 필요)
+                import re
+                latex_patterns = [
+                    r'\$\$(.+?)\$\$',  # $$...$$
+                    r'\\\((.+?)\\\)',  # \(...\)
+                    r'\\\[(.+?)\\\]'   # \[...\]
+                ]
+                for pattern in latex_patterns:
+                    matches = re.findall(pattern, content, re.DOTALL)
+                    for match in matches:
+                        result["formulas"].append({
+                            "latex": match.strip(),
+                            "confidence": 0.8
+                        })
             else:
                 result["has_formula"] = False
             
-                logger.info(f"OpenAI Vision analysis completed. Tokens used: {response.usage.total_tokens}")
-                
-                return result
+            logger.info(f"OpenAI Vision analysis completed. Tokens used: {response.usage.total_tokens}")
+            
+            return result
                 
             except Exception as e:
                 error_str = str(e)
