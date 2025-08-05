@@ -149,8 +149,10 @@ class EnhancedMultimodalProcessor:
         
         # 1. 텍스트 추출
         if extract_text:
+            openai_success = False
+            
             if self.use_openai_vision:
-                # OpenAI Vision API 사용
+                # OpenAI Vision API 사용 (폴백 시스템 적용)
                 try:
                     from openai_vision_analyzer import OpenAIVisionAnalyzer
                     logger.info("Using OpenAI Vision API for text extraction...")
@@ -164,13 +166,18 @@ class EnhancedMultimodalProcessor:
                         metadata['processing_method'] = 'openai_vision'
                         metadata['processing_steps'].append('openai_vision_analysis')
                         logger.info("OpenAI Vision API analysis completed")
+                        openai_success = True
                     else:
                         logger.error(f"OpenAI Vision API failed: {result.get('error')}")
                         metadata['openai_error'] = result.get('error')
+                        logger.info("Falling back to OCR engines...")
                 except Exception as e:
                     logger.error(f"OpenAI Vision API error: {e}")
                     metadata['openai_error'] = str(e)
-            elif self.ocr_engine:
+                    logger.info("Falling back to OCR engines...")
+            
+            # OpenAI 실패 시 또는 OCR 우선 사용 시 OCR 엔진 사용
+            if not openai_success and self.ocr_engine:
                 # 로컬 OCR 엔진 사용
                 try:
                     logger.info("Extracting text with MultiEngineOCR...")
@@ -178,11 +185,36 @@ class EnhancedMultimodalProcessor:
                     text_content = ocr_result.get('text', '')
                     metadata['ocr_confidence'] = ocr_result.get('confidence', 0)
                     metadata['ocr_engines_used'] = ocr_result.get('engines_used', [])
+                    metadata['processing_method'] = 'ocr_fallback' if self.use_openai_vision else 'ocr_primary'
                     metadata['processing_steps'].append('text_extraction')
-                    logger.info(f"Text extracted: {len(text_content)} characters")
+                    logger.info(f"Text extracted via OCR: {len(text_content)} characters")
+                    
+                    # OCR 성공 시 수식 및 캡션도 처리
+                    if detect_formulas and self.formula_processor:
+                        try:
+                            logger.info("Detecting formulas with OCR fallback...")
+                            formula_content = self.formula_processor.process_image(image)
+                            metadata['formula_count'] = len(formula_content)
+                            metadata['processing_steps'].append('formula_detection_fallback')
+                        except Exception as fe:
+                            logger.error(f"Formula detection in fallback failed: {fe}")
+                    
+                    if generate_caption and self.image_analyzer:
+                        try:
+                            logger.info("Generating caption with OCR fallback...")
+                            caption_result = self.image_analyzer.analyze_image(image)
+                            image_caption = caption_result.get('result', '')
+                            metadata['caption_confidence'] = caption_result.get('success', False)
+                            metadata['processing_steps'].append('caption_generation_fallback')
+                        except Exception as ce:
+                            logger.error(f"Caption generation in fallback failed: {ce}")
+                            
                 except Exception as e:
-                    logger.error(f"Text extraction failed: {e}")
+                    logger.error(f"OCR fallback also failed: {e}")
                     metadata['ocr_error'] = str(e)
+                    # 완전한 실패 시 빈 결과 반환
+                    text_content = ""
+                    metadata['processing_method'] = 'failed'
         
         # 2. 수식 감지 및 인식 (OpenAI Vision API 사용 시 건너뛰기)
         if detect_formulas and not self.use_openai_vision and self.formula_processor:

@@ -6,6 +6,7 @@ OpenAI Vision API를 사용한 이미지 분석기
 
 import logging
 import base64
+import time
 from typing import Dict, Any, Optional, Union
 from PIL import Image
 import io
@@ -74,32 +75,40 @@ class OpenAIVisionAnalyzer:
         Returns:
             분석 결과
         """
-        try:
-            # 이미지 인코딩
-            base64_image = self._encode_image(image)
-            
-            # 프롬프트 구성
-            system_prompt = "You are an expert in analyzing images, especially technical documents with Korean text and mathematical formulas."
-            
-            user_prompt_parts = []
-            if question:
-                user_prompt_parts.append(f"User question: {question}")
-            
-            user_prompt_parts.append("Please analyze this image and provide:")
-            
-            if extract_text:
-                user_prompt_parts.append("1. All text content (especially Korean text)")
-            
-            if detect_formulas:
-                user_prompt_parts.append("2. Any mathematical formulas (provide in LaTeX format)")
-            
-            user_prompt_parts.append("3. A brief description of the image")
-            user_prompt_parts.append("\nRespond in Korean.")
-            
-            user_prompt = "\n".join(user_prompt_parts)
-            
-            # API 호출
-            response = self.client.chat.completions.create(
+        # 재시도 로직 적용
+        max_retries = 3
+        base_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                # 이미지 인코딩
+                base64_image = self._encode_image(image)
+                
+                # 프롬프트 구성
+                system_prompt = "You are an expert in analyzing images, especially technical documents with Korean text and mathematical formulas."
+                
+                user_prompt_parts = []
+                if question:
+                    user_prompt_parts.append(f"User question: {question}")
+                
+                user_prompt_parts.append("Please analyze this image and provide:")
+                
+                if extract_text:
+                    user_prompt_parts.append("1. All text content (especially Korean text)")
+                
+                if detect_formulas:
+                    user_prompt_parts.append("2. Any mathematical formulas (provide in LaTeX format)")
+                
+                user_prompt_parts.append("3. A brief description of the image")
+                user_prompt_parts.append("\nRespond in Korean.")
+                
+                user_prompt = "\n".join(user_prompt_parts)
+                
+                if attempt > 0:
+                    logger.info(f"OpenAI Vision API retry attempt {attempt + 1}/{max_retries}")
+                
+                # API 호출
+                response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {
@@ -147,17 +156,36 @@ class OpenAIVisionAnalyzer:
             else:
                 result["has_formula"] = False
             
-            logger.info(f"OpenAI Vision analysis completed. Tokens used: {response.usage.total_tokens}")
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"OpenAI Vision analysis failed: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "raw_response": ""
-            }
+                logger.info(f"OpenAI Vision analysis completed. Tokens used: {response.usage.total_tokens}")
+                
+                return result
+                
+            except Exception as e:
+                error_str = str(e)
+                logger.error(f"OpenAI Vision API attempt {attempt + 1} failed: {error_str}")
+                
+                # 권한 오류나 할당량 오류는 재시도하지 않음
+                if "401" in error_str or "insufficient" in error_str.lower() or "quota" in error_str.lower():
+                    logger.error("Authentication or quota error - not retrying")
+                    return {
+                        "success": False,
+                        "error": error_str,
+                        "raw_response": ""
+                    }
+                
+                # 마지막 시도가 아니라면 대기 후 재시도
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # 지수 백오프
+                    logger.info(f"Waiting {delay}s before retry...")
+                    time.sleep(delay)
+                else:
+                    # 모든 재시도 실패
+                    logger.error(f"All {max_retries} attempts failed")
+                    return {
+                        "success": False,
+                        "error": error_str,
+                        "raw_response": ""
+                    }
     
     def process_multimodal_query(
         self,
