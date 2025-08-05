@@ -50,22 +50,28 @@ class MultimodalResult:
 class EnhancedMultimodalProcessor:
     """향상된 멀티모달 처리기"""
     
-    def __init__(self, use_gpu: bool = True):
+    def __init__(self, use_gpu: bool = True, use_openai_vision: bool = False):
         """
         초기화
         
         Args:
             use_gpu: GPU 사용 여부
+            use_openai_vision: OpenAI Vision API 사용 여부
         """
         self.use_gpu = use_gpu and torch.cuda.is_available()
+        self.use_openai_vision = use_openai_vision
         
-        # OCR 엔진 초기화
-        try:
-            self.ocr_engine = MultiEngineOCR()
-            logger.info("MultiEngineOCR initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize OCR engine: {e}")
-            self.ocr_engine = None
+        # OCR 엔진 초기화 (OpenAI Vision API 미사용 시에만)
+        self.ocr_engine = None
+        if not self.use_openai_vision:
+            try:
+                self.ocr_engine = MultiEngineOCR()
+                logger.info("MultiEngineOCR initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize OCR engine: {e}")
+                self.ocr_engine = None
+        else:
+            logger.info("Skipping OCR engine initialization - using OpenAI Vision API")
         
         # 수식 처리기 초기화
         try:
