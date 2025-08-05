@@ -177,32 +177,32 @@ class OpenAIVisionAnalyzer:
             
             return result
                 
-            except Exception as e:
-                error_str = str(e)
-                logger.error(f"OpenAI Vision API attempt {attempt + 1} failed: {error_str}")
-                
-                # 권한 오류나 할당량 오류는 재시도하지 않음
-                if "401" in error_str or "insufficient" in error_str.lower() or "quota" in error_str.lower():
-                    logger.error("Authentication or quota error - not retrying")
-                    return {
-                        "success": False,
-                        "error": error_str,
-                        "raw_response": ""
-                    }
-                
-                # 마지막 시도가 아니라면 대기 후 재시도
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)  # 지수 백오프
-                    logger.info(f"Waiting {delay}s before retry...")
-                    time.sleep(delay)
-                else:
-                    # 모든 재시도 실패
-                    logger.error(f"All {max_retries} attempts failed")
-                    return {
-                        "success": False,
-                        "error": error_str,
-                        "raw_response": ""
-                    }
+        except Exception as e:
+            error_str = str(e)
+            logger.error(f"OpenAI Vision API attempt {attempt + 1} failed: {error_str}")
+            
+            # 권한 오류나 할당량 오류는 재시도하지 않음
+            if "401" in error_str or "insufficient" in error_str.lower() or "quota" in error_str.lower():
+                logger.error("Authentication or quota error - not retrying")
+                return {
+                    "success": False,
+                    "error": error_str,
+                    "raw_response": ""
+                }
+            
+            # 마지막 시도가 아니라면 대기 후 재시도
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)  # 지수 백오프
+                logger.info(f"Waiting {delay}s before retry...")
+                time.sleep(delay)
+            else:
+                # 모든 재시도 실패
+                logger.error(f"All {max_retries} attempts failed")
+                return {
+                    "success": False,
+                    "error": error_str,
+                    "raw_response": ""
+                }
     
     def process_multimodal_query(
         self,
