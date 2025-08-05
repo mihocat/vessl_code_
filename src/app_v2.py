@@ -503,6 +503,26 @@ def create_enhanced_gradio_app(config: Optional[Config] = None) -> gr.Blocks:
     return app
 
 
+def launch_app():
+    """앱 실행 함수 (run_app.py에서 호출)"""
+    # 설정 로드
+    config = Config()
+    
+    # 앱 생성 및 실행
+    try:
+        app = create_enhanced_gradio_app(config)
+        app.launch(
+            server_name=config.app.server_name,
+            server_port=config.app.server_port,
+            share=config.app.share,
+            show_error=True,
+            quiet=False
+        )
+    except Exception as e:
+        logger.error(f"Failed to launch app: {e}")
+        sys.exit(1)
+
+
 def main():
     """메인 함수"""
     import argparse
