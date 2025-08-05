@@ -101,8 +101,8 @@ class OpenAIConfig:
     text_model: str = "gpt-4-turbo-preview"  # gpt-4-turbo, gpt-3.5-turbo
     max_tokens: int = 1000
     temperature: float = 0.2
-    use_vision_api: bool = False  # Vision API 사용 여부
-    use_for_llm: bool = False  # LLM 응답 생성에 사용 여부
+    use_vision_api: bool = True  # Vision API 사용 여부 - 권한 수정됨
+    use_for_llm: bool = True  # LLM 응답 생성에 사용 여부 - 권한 수정됨
     
     def __post_init__(self):
         """초기화 후 처리"""
@@ -125,7 +125,8 @@ class AppConfig:
     """
     
     # 이미지 분석 설정
-    use_simple_analyzer: bool = True  # 단순화된 분석기 사용 여부
+    use_simple_analyzer: bool = True  # OpenAI API 권한 수정됨
+    force_ocr_engines: bool = False  # OpenAI Vision API 우선 사용
     
     # 예제 질문
     example_questions: List[str] = None
