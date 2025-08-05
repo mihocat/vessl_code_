@@ -13,7 +13,7 @@ from typing import List, Optional
 @dataclass
 class LLMConfig:
     """LLM 설정"""
-    base_url: str = "http://localhost:8000"
+    base_url: str = "http://localhost:8088"
     model_name: str = "test_model"
     # model_name: str = "yanolja/EEVE-Korean-Instruct-10.8B-v1.0"
     max_tokens: int = 800
