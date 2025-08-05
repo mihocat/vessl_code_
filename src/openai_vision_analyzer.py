@@ -32,15 +32,24 @@ class OpenAIVisionAnalyzer:
         
         self.config = config.openai
         
-        if not self.config.api_key:
-            raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable.")
+        if not self.config.api_key or self.config.api_key.startswith("sk-fallback"):
+            logger.warning("OpenAI API key not properly configured - Vision API will be disabled")
+            self.api_available = False
+        else:
+            self.api_available = True
         
-        self.client = OpenAI(api_key=self.config.api_key)
-        self.model = self.config.vision_model
-        self.max_tokens = self.config.max_tokens
-        self.temperature = self.config.temperature
-        
-        logger.info(f"OpenAI Vision Analyzer initialized with model: {self.model}")
+        if self.api_available:
+            self.client = OpenAI(api_key=self.config.api_key)
+            self.model = self.config.vision_model
+            self.max_tokens = self.config.max_tokens
+            self.temperature = self.config.temperature
+            logger.info(f"OpenAI Vision Analyzer initialized with model: {self.model}")
+        else:
+            self.client = None
+            self.model = None
+            self.max_tokens = 1000
+            self.temperature = 0.2
+            logger.info("OpenAI Vision Analyzer initialized in fallback mode")
     
     def _encode_image(self, image: Union[Image.Image, str]) -> str:
         """이미지를 base64로 인코딩"""
@@ -75,6 +84,15 @@ class OpenAIVisionAnalyzer:
         Returns:
             분석 결과
         """
+        # API 사용 불가능한 경우 즉시 실패 반환
+        if not self.api_available:
+            logger.warning("OpenAI Vision API not available - API key not configured")
+            return {
+                "success": False,
+                "error": "OpenAI API key not configured - using OCR fallback",
+                "raw_response": ""
+            }
+        
         # 재시도 로직 적용
         max_retries = 3
         base_delay = 1.0
