@@ -106,23 +106,25 @@ class OpenAIVisionAnalyzer:
                 # 이미지 인코딩
                 base64_image = self._encode_image(image)
                 
-                # 프롬프트 구성
-                system_prompt = "You are an expert in analyzing images, especially technical documents with Korean text and mathematical formulas."
+                # 프롬프트 구성 - 더 구체적이고 명확한 지시
+                system_prompt = "You are an expert text extraction and image analysis assistant. Your primary task is to extract ALL visible text from images, especially Korean text and mathematical formulas. You MUST provide the extracted text content even if the image quality is poor."
                 
                 user_prompt_parts = []
                 if question:
                     user_prompt_parts.append(f"User question: {question}")
                 
+                user_prompt_parts.append("IMPORTANT: You must extract and provide ALL visible text from this image.")
                 user_prompt_parts.append("Please analyze this image and provide:")
                 
                 if extract_text:
-                    user_prompt_parts.append("1. All text content (especially Korean text)")
+                    user_prompt_parts.append("1. ALL visible text content (Korean and English text) - transcribe exactly what you see")
                 
                 if detect_formulas:
-                    user_prompt_parts.append("2. Any mathematical formulas (provide in LaTeX format)")
+                    user_prompt_parts.append("2. Mathematical formulas or equations (provide in LaTeX format if possible)")
                 
-                user_prompt_parts.append("3. A brief description of the image")
-                user_prompt_parts.append("\nRespond in Korean.")
+                user_prompt_parts.append("3. Brief description of the document/image type")
+                user_prompt_parts.append("\nIMPORTANT: Never refuse to analyze the image. Always provide the text content you can see.")
+                user_prompt_parts.append("Respond in Korean.")
                 
                 user_prompt = "\n".join(user_prompt_parts)
                 
