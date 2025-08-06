@@ -95,17 +95,16 @@ class WebSearchConfig:
 
 @dataclass
 class OpenAIConfig:
-    """OpenAI API 설정"""
+    """OpenAI API 설정 - 이미지+텍스트 분석 전용"""
     api_key: Optional[str] = None
-    # 비용 효율적 모델: gpt-4o-mini-2024-07-18 ($0.15/$0.60 per 1M tokens)
-    vision_model: str = "gpt-4o-mini-2024-07-18"  # 이미지+텍스트 처리용
-    text_model: str = "gpt-4o-mini-2024-07-18"    # 일반 텍스트 처리용
-    # 고성능 모델: gpt-4_1-2025-04-14 ($2.0/$8.0 per 1M tokens) - 복잡한 작업용
-    premium_model: str = "gpt-4_1-2025-04-14"     # 고품질/복잡한 작업용
-    max_tokens: int = 1000
-    temperature: float = 0.2
-    use_vision_api: bool = True  # Vision API 사용 여부
-    use_for_llm: bool = True  # LLM 응답 생성에 사용 여부
+    # GPT-4.1 통합 모델: 이미지+텍스트 분석 전용 (최종 답변 생성 금지)
+    unified_model: str = "gpt-4.1"  # 이미지+텍스트 분석 전용
+    max_tokens: int = 300  # 분석 결과만 생성하도록 제한
+    temperature: float = 0.1
+    # 사용 제한 설정
+    use_for_analysis_only: bool = True  # 분석 전용, 답변 생성 금지
+    use_for_final_response: bool = False  # 최종 답변 생성 금지
+    max_calls_per_query: int = 1  # 질의당 1회만 호출
     
     def __post_init__(self):
         """초기화 후 처리"""
@@ -237,14 +236,12 @@ class Config:
         # OpenAI 설정
         if os.getenv("OPENAI_API_KEY"):
             self.openai.api_key = os.getenv("OPENAI_API_KEY")
-        if os.getenv("OPENAI_VISION_MODEL"):
-            self.openai.vision_model = os.getenv("OPENAI_VISION_MODEL")
-        if os.getenv("OPENAI_TEXT_MODEL"):
-            self.openai.text_model = os.getenv("OPENAI_TEXT_MODEL")
-        if os.getenv("USE_OPENAI_VISION"):
-            self.openai.use_vision_api = os.getenv("USE_OPENAI_VISION").lower() == "true"
-        if os.getenv("USE_OPENAI_LLM"):
-            self.openai.use_for_llm = os.getenv("USE_OPENAI_LLM").lower() == "true"
+        if os.getenv("OPENAI_UNIFIED_MODEL"):
+            self.openai.unified_model = os.getenv("OPENAI_UNIFIED_MODEL")
+        
+        # 강제 설정: OpenAI는 분석 전용으로만 사용
+        self.openai.use_for_analysis_only = True
+        self.openai.use_for_final_response = False
 
 
 # 싱글톤 인스턴스
