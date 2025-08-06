@@ -8,6 +8,7 @@ OpenAI 분석(1회) → RAG → 파인튜닝 LLM 파이프라인
 import sys
 import time
 import logging
+from datetime import datetime
 from typing import List, Tuple, Optional, Dict, Any
 from PIL import Image
 import gradio as gr
@@ -15,8 +16,16 @@ import gradio as gr
 from config import Config
 from integrated_pipeline import IntegratedPipeline
 
-logging.basicConfig(level=logging.INFO)
+# 상세한 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger(__name__)
+
+# 앱 시작 시간 기록
+APP_START_TIME = datetime.now()
 
 
 class IntegratedChatService:
@@ -24,13 +33,23 @@ class IntegratedChatService:
     
     def __init__(self, config: Config):
         """서비스 초기화"""
-        self.config = config
-        self.pipeline = IntegratedPipeline(config)
+        init_start_time = time.time()
+        logger.info("🚀 [INIT] IntegratedChatService 초기화 시작")
         
-        # 대화 이력
+        logger.info("🔧 [INIT-1] 설정 객체 저장 중...")
+        self.config = config
+        
+        logger.info("🔧 [INIT-2] 통합 파이프라인 생성 중...")
+        pipeline_start = time.time()
+        self.pipeline = IntegratedPipeline(config)
+        pipeline_time = time.time() - pipeline_start
+        logger.info(f"✅ [INIT-2] 통합 파이프라인 생성 완료 ({pipeline_time:.2f}초)")
+        
+        logger.info("🔧 [INIT-3] 대화 이력 초기화 중...")
         self.conversation_history = []
         
-        logger.info("IntegratedChatService initialized")
+        init_total_time = time.time() - init_start_time
+        logger.info(f"✅ [INIT] IntegratedChatService 초기화 완료 (총 {init_total_time:.2f}초)")
     
     def process_query(
         self, 
@@ -39,7 +58,7 @@ class IntegratedChatService:
         image: Optional[Image.Image] = None
     ) -> Tuple[str, List[Tuple[str, str]]]:
         """
-        질의 처리
+        질의 처리 - 전체 플로우 로깅 포함
         
         Args:
             question: 사용자 질문
@@ -49,10 +68,28 @@ class IntegratedChatService:
         Returns:
             (응답 메시지, 업데이트된 대화 이력)
         """
+        query_start_time = time.time()
+        query_id = int(time.time() * 1000) % 100000  # 5자리 쿼리 ID
+        
+        logger.info(f"\n🎯 ====== [QUERY-{query_id}] 사용자 질의 처리 시작 ======")
+        logger.info(f"📝 [QUERY-{query_id}] 질문: {question[:100]}{'...' if len(question) > 100 else ''}")
+        logger.info(f"🖼️ [QUERY-{query_id}] 이미지: {'있음' if image else '없음'}")
+        logger.info(f"📚 [QUERY-{query_id}] 대화 이력: {len(history)}개")
+        
         if not question.strip():
+            logger.warning(f"⚠️ [QUERY-{query_id}] 빈 질문 입력됨")
             return "질문을 입력해주세요.", history
         
-        # 파이프라인 처리
+        logger.info(f"🔄 [QUERY-{query_id}] 통합 파이프라인 처리 시작")
+        pipeline_start = time.time()
+        
+        # 파이프라인 처리 - 단계별 상세 로깅
+        logger.info(f"📋 [QUERY-{query_id}] 파이프라인 입력 파라미터:")
+        logger.info(f"   - use_rag: True")
+        logger.info(f"   - use_llm: True")
+        logger.info(f"   - 질문 길이: {len(question)}자")
+        logger.info(f"   - 이미지: {'포함' if image else '없음'}")
+        
         result = self.pipeline.process_query(
             question=question,
             image=image,
@@ -60,22 +97,75 @@ class IntegratedChatService:
             use_llm=True
         )
         
+        # 파이프라인 결과 상세 로깅
+        logger.info(f"📊 [QUERY-{query_id}] 파이프라인 결과 분석:")
         if result.success:
-            # 성공적인 처리
-            response = self._format_response(result, question, image)
+            logger.info(f"   ✅ 처리 성공")
+            logger.info(f"   📝 최종 답변 길이: {len(result.final_answer)}자")
+            if result.analysis_result:
+                analysis = result.analysis_result
+                logger.info(f"   🔍 OpenAI 분석: 성공")
+                if analysis.get('token_usage'):
+                    tokens = analysis['token_usage']
+                    logger.info(f"     - 토큰: {tokens.get('total_tokens', 0)}개")
+                if analysis.get('cost'):
+                    logger.info(f"     - 비용: ${analysis['cost']:.4f}")
+            if result.rag_results:
+                logger.info(f"   📚 RAG 검색: {len(result.rag_results)}개 문서")
+            if result.processing_times:
+                times = result.processing_times
+                logger.info(f"   ⏱️ 단계별 시간:")
+                for step, duration in times.items():
+                    if step != 'total':
+                        logger.info(f"     - {step}: {duration:.2f}초")
         else:
-            # 실패 처리
+            logger.error(f"   ❌ 처리 실패: {result.error_message}")
+        
+        pipeline_time = time.time() - pipeline_start
+        logger.info(f"{'✅' if result.success else '❌'} [QUERY-{query_id}] 파이프라인 처리 완료 ({pipeline_time:.2f}초)")
+        
+        if result.success:
+            logger.info(f"✅ [QUERY-{query_id}] 파이프라인 성공 - 응답 포맷팅 시작")
+            format_start = time.time()
+            response = self._format_response(result, question, image)
+            format_time = time.time() - format_start
+            logger.info(f"📝 [QUERY-{query_id}] 응답 포맷팅 완료 ({format_time:.3f}초)")
+            logger.info(f"📄 [QUERY-{query_id}] 최종 응답 요약:")
+            logger.info(f"   - 응답 총 길이: {len(response)}자")
+            logger.info(f"   - 메인 답변: {result.final_answer[:100]}{'...' if len(result.final_answer) > 100 else ''}")
+        else:
+            logger.error(f"❌ [QUERY-{query_id}] 파이프라인 실패: {result.error_message}")
             response = f"처리 중 오류가 발생했습니다: {result.error_message}"
         
         # 대화 이력 업데이트
+        logger.info(f"📚 [QUERY-{query_id}] 대화 이력 업데이트 중...")
         history.append((question, response))
         self.conversation_history.append({
+            'query_id': query_id,
             'question': question,
             'response': response,
             'has_image': image is not None,
             'timestamp': time.time(),
-            'pipeline_result': result
+            'pipeline_result': result,
+            'processing_time': time.time() - query_start_time
         })
+        
+        total_time = time.time() - query_start_time
+        logger.info(f"🏁 [QUERY-{query_id}] 전체 질의 처리 완료 (총 {total_time:.2f}초)")
+        logger.info(f"📈 [QUERY-{query_id}] 성능 요약:")
+        logger.info(f"   - 파이프라인: {pipeline_time:.2f}초 ({pipeline_time/total_time*100:.1f}%)")
+        if result.success and result.processing_times:
+            times = result.processing_times
+            if 'openai_analysis' in times:
+                openai_time = times['openai_analysis']
+                logger.info(f"   - OpenAI 분석: {openai_time:.2f}초 ({openai_time/total_time*100:.1f}%)")
+            if 'rag_search' in times:
+                rag_time = times['rag_search']
+                logger.info(f"   - RAG 검색: {rag_time:.2f}초 ({rag_time/total_time*100:.1f}%)")
+            if 'llm_generation' in times:
+                llm_time = times['llm_generation']
+                logger.info(f"   - LLM 생성: {llm_time:.2f}초 ({llm_time/total_time*100:.1f}%)")
+        logger.info(f"🎯 ====== [QUERY-{query_id}] 처리 종료 ======\n")
         
         return response, history
     
@@ -282,21 +372,62 @@ def create_gradio_interface(service: IntegratedChatService) -> gr.Interface:
 
 
 def main():
-    """메인 함수"""
+    """메인 함수 - 앱 로딩 단계별 상세 로깅"""
+    app_start_time = time.time()
+    logger.info("\n🎉 ========================================")
+    logger.info("🎉    통합 AI 파이프라인 앱 시작")
+    logger.info("🎉 ========================================")
+    
     try:
-        # 설정 로드
+        # Step 1: 설정 로드
+        logger.info("🔧 [STEP-1] 시스템 설정 로드 시작...")
+        config_start = time.time()
         config = Config()
-        logger.info("Configuration loaded")
+        config_time = time.time() - config_start
+        logger.info(f"✅ [STEP-1] 시스템 설정 로드 완료 ({config_time:.2f}초)")
+        logger.info(f"📋 [STEP-1] 설정 요약:")
+        logger.info(f"   - OpenAI 모델: {getattr(config.openai, 'unified_model', 'N/A')}")
+        logger.info(f"   - 서버 주소: {config.app.server_name}:{config.app.server_port}")
+        logger.info(f"   - RAG 활성화: {hasattr(config, 'rag')}")
         
-        # 서비스 초기화
+        # Step 2: 통합 서비스 초기화
+        logger.info("🔧 [STEP-2] IntegratedChatService 초기화 시작...")
+        service_start = time.time()
         service = IntegratedChatService(config)
-        logger.info("IntegratedChatService initialized")
+        service_time = time.time() - service_start
+        logger.info(f"✅ [STEP-2] IntegratedChatService 초기화 완료 ({service_time:.2f}초)")
         
-        # Gradio 인터페이스 생성
+        # Step 3: Gradio 인터페이스 생성
+        logger.info("🔧 [STEP-3] Gradio 웹 인터페이스 생성 시작...")
+        iface_start = time.time()
         iface = create_gradio_interface(service)
+        iface_time = time.time() - iface_start
+        logger.info(f"✅ [STEP-3] Gradio 인터페이스 생성 완료 ({iface_time:.2f}초)")
         
-        # 서버 시작
-        logger.info(f"Starting server on {config.app.server_name}:{config.app.server_port}")
+        # Step 4: 시스템 상태 확인
+        logger.info("🔧 [STEP-4] 시스템 상태 최종 확인...")
+        try:
+            status_check = service.get_system_status()
+            logger.info("✅ [STEP-4] 시스템 상태 확인 완료")
+        except Exception as status_e:
+            logger.warning(f"⚠️ [STEP-4] 시스템 상태 확인 실패: {status_e}")
+        
+        # 전체 초기화 시간 계산
+        total_init_time = time.time() - app_start_time
+        logger.info(f"\n🎊 전체 앱 초기화 완료!")
+        logger.info(f"📊 초기화 시간 분석:")
+        logger.info(f"   - 설정 로드: {config_time:.2f}초")
+        logger.info(f"   - 서비스 초기화: {service_time:.2f}초")
+        logger.info(f"   - 인터페이스 생성: {iface_time:.2f}초")
+        logger.info(f"   - 전체 소요시간: {total_init_time:.2f}초")
+        
+        # Step 5: 서버 시작
+        logger.info(f"\n🚀 [LAUNCH] 웹 서버 시작 중...")
+        logger.info(f"🌐 [LAUNCH] 서버 주소: http://{config.app.server_name}:{config.app.server_port}")
+        logger.info(f"🔗 [LAUNCH] 공유 링크: {'활성화' if config.app.share else '비활성화'}")
+        logger.info(f"🎯 [LAUNCH] 서버 시작 후 질의 처리 로깅이 시작됩니다...")
+        
+        # Gradio 서버 런치
         iface.launch(
             server_name=config.app.server_name,
             server_port=config.app.server_port,
@@ -305,7 +436,9 @@ def main():
         )
         
     except Exception as e:
-        logger.error(f"Failed to start application: {e}")
+        logger.error(f"❌ [ERROR] 앱 시작 실패: {e}")
+        logger.error(f"❌ [ERROR] 오류 타입: {type(e).__name__}")
+        logger.error(f"❌ [ERROR] 오류 상세: {str(e)}")
         sys.exit(1)
 
 
