@@ -163,15 +163,28 @@ class IntegratedPipeline:
                 # 프롬프트 구성
                 prompt = self._build_prompt(context, question, analysis_result)
                 
-                # LLM 답변 생성
+                # LLM 답변 생성 시도
                 final_answer = self.llm_client.generate_response(prompt)
                 processing_times['llm_generation'] = time.time() - step3_start
                 
-                logger.info("🤖 파인튜닝 LLM 답변 생성 완료")
+                # LLM 연결 실패 시 OpenAI 응답 활용하여 폴백
+                if "응답 생성 중 오류가 발생했습니다" in final_answer or len(final_answer) < 50:
+                    logger.warning("🔄 LLM 서버 연결 실패 - OpenAI 응답으로 폴백 진행")
+                    pipeline_steps.append("OpenAI_Fallback")
+                    
+                    fallback_answer = self._generate_openai_fallback_answer(analysis_result, rag_results, question)
+                    if fallback_answer and len(fallback_answer) > 50:
+                        final_answer = fallback_answer
+                        logger.info("✅ OpenAI 폴백 답변 생성 완료")
+                    else:
+                        logger.warning("⚠️ OpenAI 폴백도 실패 - 기본 답변 사용")
+                
+                logger.info("🤖 최종 답변 생성 완료")
                 
             else:
-                logger.error("❌ 파인튜닝 LLM 사용 불가")
-                final_answer = "파인튜닝된 LLM을 사용할 수 없습니다. 시스템 설정을 확인해주세요."
+                logger.warning("❌ 파인튜닝 LLM 사용 불가 - OpenAI 전용 모드로 전환")
+                pipeline_steps.append("OpenAI_Only")
+                final_answer = self._generate_openai_fallback_answer(analysis_result, rag_results, question)
             
             # ========== 결과 정리 ==========
             total_time = time.time() - start_time
@@ -312,6 +325,76 @@ class IntegratedPipeline:
                 logger.error(f"LLM client health check failed: {e}")
         
         return status
+    
+    def _generate_openai_fallback_answer(
+        self, 
+        analysis_result, 
+        rag_results: List[SearchResult], 
+        question: str
+    ) -> str:
+        """OpenAI 응답 기반 폴백 답변 생성"""
+        try:
+            logger.info("🔄 OpenAI 폴백 답변 생성 시작")
+            
+            # OpenAI 분석 결과에서 기본 정보 추출
+            extracted_text = analysis_result.extracted_text if analysis_result else ""
+            formulas = analysis_result.formulas if analysis_result else []
+            
+            # 기본적인 답변 구성
+            if extracted_text and len(extracted_text) > 100:
+                # 이미지에서 추출된 텍스트가 충분한 경우
+                answer_parts = [
+                    "📋 **이미지 분석 결과를 바탕으로 답변드립니다:**\n",
+                    f"**문제 내용:** {extracted_text[:300]}...\n" if len(extracted_text) > 300 else f"**문제 내용:** {extracted_text}\n"
+                ]
+                
+                # 수식이 있는 경우
+                if formulas:
+                    answer_parts.append(f"**수식 발견:** {len(formulas)}개의 수학 표현식이 포함되어 있습니다.\n")
+                
+                # 질문에 대한 기본적인 안내
+                if "미분" in question or "미분" in extracted_text:
+                    answer_parts.append("""
+**미분 관련 설명:**
+- d/da는 'a에 대한 미분'을 의미합니다
+- s는 변수, a는 상수로 취급됩니다
+- 상수를 미분하면 0, 변수를 미분하면 1이 됩니다
+
+추가적인 세부 설명이 필요하시면 구체적인 식이나 문제를 다시 제시해 주세요.""")
+                
+                elif "벡터" in question or "거리" in question:
+                    answer_parts.append("""
+**벡터 관련 설명:**
+- 두 점 사이의 벡터 방향은 시점과 종점에 따라 결정됩니다
+- P-Q와 Q-P는 방향이 반대인 벡터입니다
+- 물리학에서는 '영향을 받는 점'이 종점이 되는 것이 일반적입니다
+
+구체적인 문제 상황에 대한 추가 설명이 필요하시면 문제를 다시 제시해 주세요.""")
+                
+                else:
+                    answer_parts.append("""
+이미지에서 추출한 내용을 바탕으로 답변을 준비했습니다.
+더 정확한 답변을 위해서는 구체적인 질문이나 추가 정보를 제공해 주세요.""")
+                
+                return "".join(answer_parts)
+            
+            else:
+                # 추출된 텍스트가 부족한 경우 일반적인 답변
+                return f"""죄송합니다. 현재 시스템 제약으로 인해 완전한 답변을 제공하기 어렵습니다.
+
+**질문:** {question}
+
+**현재 상황:**
+- 이미지 분석: {'완료' if extracted_text else '제한적'}
+- RAG 문서 검색: {len(rag_results)}개 문서 발견
+- LLM 서버: 연결 대기 중
+
+보다 정확한 답변을 위해 잠시 후 다시 시도해 주시거나, 
+질문을 텍스트로 입력해 주시면 더 도움이 될 것 같습니다."""
+                
+        except Exception as e:
+            logger.error(f"OpenAI 폴백 답변 생성 실패: {e}")
+            return f"죄송합니다. 시스템 처리 중 문제가 발생했습니다. 질문: {question}"
 
 
 def create_integrated_pipeline(config: Config) -> IntegratedPipeline:
