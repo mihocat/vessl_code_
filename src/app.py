@@ -374,60 +374,72 @@ class NextGenChatService:
         # response_header = f"### 질문: {question}\n\n"
         response_header = "답변: "
         
-        # 신뢰도 수준 결정 (이미지가 있으면 항상 LLM 사용)
-        if image_context:
-            # 이미지가 있는 경우 항상 LLM 사용
-            confidence_level = "medium" if max_score >= self.config.rag.medium_confidence_threshold else "low"
-        else:
-            # 기존 로직
-            if max_score >= self.config.rag.high_confidence_threshold:
-                confidence_level = "high"
-            elif max_score >= self.config.rag.medium_confidence_threshold:
-                confidence_level = "medium"
-            else:
-                confidence_level = "low"
+        # 사용자 요구사항: 2분기 구조 (0.75 이상 = RAG 직접, 0.75 미만 = 자체 LLM)
+        # ChatGPT API는 질의당 1번만 호출
         
-        # 높은 신뢰도 - 직접 답변 사용 (이미지가 없는 경우만)
-        if confidence_level == "high" and results and not image_context:
+        # 신뢰도 0.75 이상: RAG 직접 답변 사용
+        if max_score >= self.config.rag.high_confidence_threshold and results:
             best_result = results[0]
             response = response_header + best_result.answer
             
             if best_result.category and best_result.category != "general":
                 response += f"\n\n_[카테고리: {best_result.category}]_"
+                
+            confidence_level = "high"
         
-        # 중간/낮은 신뢰도 또는 이미지가 있는 경우 - LLM 활용
+        # 신뢰도 0.75 미만: 자체 LLM 사용 (ChatGPT API 또는 vLLM)
         else:
-            # 웹 검색 수행 (낮은 신뢰도이고 이미지가 없는 경우)
-            web_results = []
-            if confidence_level == "low" and not image_context:
+            confidence_level = "low"
+            
+            # 이미지가 있는 경우 ChatGPT API 1회 호출 (Vision + Text 통합)
+            if image_context:
+                # 이미지 분석 실패 메시지 추가
+                image_error_prefix = ""
+                if "error" in image_context:
+                    if "caption" in image_context and "[이미지 분석" in image_context["caption"]:
+                        image_error_prefix = "[이미지 분석 실패] "
+                
+                # 컨텍스트 준비 (이미지 컨텍스트 포함)
+                context = self.response_generator.prepare_context(results, [], image_context)
+                
+                # 프롬프트 생성
+                prompt = self.response_generator.generate_prompt(
+                    question, context, confidence_level
+                )
+                
+                # ChatGPT API 1회 호출 (이미지+텍스트 통합)
+                try:
+                    if prompt:
+                        llm_response = self.llm_client.query(prompt, "")
+                        response = response_header + image_error_prefix + llm_response
+                    else:
+                        response = response_header + image_error_prefix + "죄송합니다. 관련 정보를 찾을 수 없습니다."
+                except Exception as e:
+                    logger.error(f"LLM response generation failed: {e}")
+                    response = response_header + image_error_prefix + "죄송합니다. 응답 생성 중 오류가 발생했습니다."
+            
+            # 이미지가 없는 경우 자체 LLM 사용 (vLLM 우선)
+            else:
+                # 웹 검색 추가 (필요시)
                 web_results = self.web_search.search(question)
-            
-            # 컨텍스트 준비 (이미지 컨텍스트 포함)
-            context = self.response_generator.prepare_context(results, web_results, image_context)
-            
-            # 이미지 분석 실패 메시지 추가
-            image_error_prefix = ""
-            if image_context and "error" in image_context:
-                if "caption" in image_context and "[이미지 분석" in image_context["caption"]:
-                    image_error_prefix = "[이미지 분석 실패] "
-            
-            # 프롬프트 생성
-            prompt = self.response_generator.generate_prompt(
-                question, context, confidence_level
-            )
-            
-            # LLM 응답 생성
-            try:
-                if prompt:  # 프롬프트가 있는 경우만 LLM 호출
-                    llm_response = self.llm_client.query(prompt, "")
-                    response = response_header + image_error_prefix + llm_response
-                else:
-                    response = response_header + image_error_prefix + "죄송합니다. 관련 정보를 찾을 수 없습니다."
-            except Exception as e:
-                logger.error(f"LLM response generation failed: {e}")
-                if image_error_prefix:
-                    response = response_header + image_error_prefix + "이미지는 분석할 수 없었지만, 텍스트 기반으로 답변드립니다. 죄송합니다. 응답 생성 중 추가 오류가 발생했습니다."
-                else:
+                
+                # 컨텍스트 준비
+                context = self.response_generator.prepare_context(results, web_results, None)
+                
+                # 프롬프트 생성
+                prompt = self.response_generator.generate_prompt(
+                    question, context, confidence_level
+                )
+                
+                # 자체 LLM 호출 (vLLM 우선, ChatGPT 폴백)
+                try:
+                    if prompt:
+                        llm_response = self.llm_client.query(prompt, "")
+                        response = response_header + llm_response
+                    else:
+                        response = response_header + "죄송합니다. 관련 정보를 찾을 수 없습니다."
+                except Exception as e:
+                    logger.error(f"LLM response generation failed: {e}")
                     response = response_header + "죄송합니다. 응답 생성 중 오류가 발생했습니다."
         
         # 관련 질문 추천
@@ -437,8 +449,9 @@ class NextGenChatService:
             for q in related_questions:
                 response += f"\n- {q}"
         
-        # 점수와 신뢰도 정보 표시
-        response += f"\n\n[점수: {max_score:.3f}, 신뢰도: {confidence_level}]"
+        # 점수와 신뢰도 정보 표시 (2분기 구조 표시)
+        system_type = "RAG 직접응답" if confidence_level == "high" else "자체 LLM"
+        response += f"\n\n[점수: {max_score:.3f}, 시스템: {system_type}]"
         
         return response
     
