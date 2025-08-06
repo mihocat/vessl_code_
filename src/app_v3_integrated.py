@@ -6,6 +6,7 @@ OpenAI 분석(1회) → RAG → 파인튜닝 LLM 파이프라인
 """
 
 import sys
+import os
 import time
 import logging
 from datetime import datetime
@@ -83,10 +84,15 @@ class IntegratedChatService:
         logger.info(f"🔄 [QUERY-{query_id}] 통합 파이프라인 처리 시작")
         pipeline_start = time.time()
         
+        # SKIP_VLLM 환경변수 확인
+        skip_vllm = os.getenv("SKIP_VLLM", "false").lower() == "true"
+        use_llm_flag = not skip_vllm
+        
         # 파이프라인 처리 - 단계별 상세 로깅
         logger.info(f"📋 [QUERY-{query_id}] 파이프라인 입력 파라미터:")
         logger.info(f"   - use_rag: True")
-        logger.info(f"   - use_llm: True")
+        logger.info(f"   - use_llm: {use_llm_flag}")
+        logger.info(f"   - SKIP_VLLM: {skip_vllm}")
         logger.info(f"   - 질문 길이: {len(question)}자")
         logger.info(f"   - 이미지: {'포함' if image else '없음'}")
         
@@ -94,7 +100,7 @@ class IntegratedChatService:
             question=question,
             image=image,
             use_rag=True,
-            use_llm=True
+            use_llm=use_llm_flag
         )
         
         # 파이프라인 결과 상세 로깅
