@@ -21,7 +21,7 @@ from config import Config
 from intent_analyzer import IntentAnalyzer, IntentAnalysisResult
 from enhanced_rag_system import EnhancedRAGSystem
 from multi_agent_system import MultiAgentSystem, VisionAnalystAgent, RAGSpecialistAgent, ReasoningEngineAgent, SynthesizerAgent
-from openai_vision_analyzer import OpenAIVisionAnalyzer
+from optimized_openai_vision_analyzer import OptimizedOpenAIVisionAnalyzer as OpenAIVisionAnalyzer
 
 logger = logging.getLogger(__name__)
 

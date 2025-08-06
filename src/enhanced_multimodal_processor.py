@@ -154,10 +154,15 @@ class EnhancedMultimodalProcessor:
             if self.use_openai_vision:
                 # OpenAI Vision API 사용 (폴백 시스템 적용)
                 try:
-                    from openai_vision_analyzer import OpenAIVisionAnalyzer
+                    from optimized_openai_vision_analyzer import OptimizedOpenAIVisionAnalyzer as OpenAIVisionAnalyzer
                     logger.info("Using OpenAI Vision API for text extraction...")
                     vision_analyzer = OpenAIVisionAnalyzer()
-                    result = vision_analyzer.analyze_image(image, question=question, extract_text=True, detect_formulas=detect_formulas)
+                    result = vision_analyzer.analyze_image_optimized(
+                        image=image, 
+                        question=question, 
+                        extract_text=True, 
+                        detect_formulas=detect_formulas
+                    )
                     
                     if result['success']:
                         text_content = result.get('text_content', '')

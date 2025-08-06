@@ -1,29 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Gradio UI Application for RAG System
-RAG 시스템 Gradio UI 애플리케이션
+차세대 AI 챗봇 통합 Gradio UI 애플리케이션
+Next-Generation AI Chatbot Integrated Gradio UI Application
+
+통합 서비스 + 멀티모달 처리 + 고급 AI 시스템
+Integrated Service + Multimodal Processing + Advanced AI System
 """
 
 import sys
 import time
+import asyncio
 import logging
-from typing import List, Tuple, Optional, Union
+import uuid
+from typing import List, Tuple, Optional, Union, Dict, Any
 from PIL import Image
 import torch
 
 import gradio as gr
 
 from config import Config
-# 조건부 LLM 클라이언트 임포트
+# 차세대 통합 시스템 임포트
+from integrated_service import IntegratedAIService, ServiceConfig, ServiceRequest, ServiceResponse
+from advanced_ai_system import ReasoningType
+
+# 기존 시스템 호환성 유지
+from rag_system import RAGSystem, SearchResult
+from services import WebSearchService, ResponseGenerator
+from intelligent_rag_adapter import IntelligentRAGAdapter
+
+# 조건부 LLM 클라이언트 임포트 (폴백용)
 import os
 if os.getenv("USE_OPENAI_LLM", "false").lower() == "true" or os.getenv("SKIP_VLLM", "false").lower() == "true":
     from llm_client_openai import LLMClient
 else:
     from llm_client import LLMClient
-from rag_system import RAGSystem, SearchResult
-from services import WebSearchService, ResponseGenerator
-from intelligent_rag_adapter import IntelligentRAGAdapter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,193 +64,292 @@ else:
     from image_analyzer import MultimodalRAGService
 
 
-class ChatService:
-    """통합 챗봇 서비스"""
+class NextGenChatService:
+    """차세대 통합 챗봇 서비스"""
     
-    def __init__(self, config: Config, llm_client: LLMClient):
+    def __init__(self, config: Config):
         """
-        챗봇 서비스 초기화
+        차세대 챗봇 서비스 초기화
         
         Args:
             config: 전체 설정 객체
-            llm_client: LLM 클라이언트
         """
         self.config = config
-        self.llm_client = llm_client
         
-        # 컴포넌트 초기화
-        self.rag_system = RAGSystem(
-            rag_config=config.rag,
-            dataset_config=config.dataset,
-            llm_client=llm_client
+        # 서비스 설정 구성
+        service_config = ServiceConfig(
+            service_mode="hybrid",  # 고급/기본 시스템 자동 선택
+            enable_openai_vision=True,
+            enable_ncp_ocr=True,
+            enable_rag=True,
+            enable_fine_tuned_llm=True,
+            enable_reasoning=True,
+            enable_memory=True,
+            enable_agents=True,
+            max_concurrent_requests=10,
+            request_timeout=120.0,
+            cache_results=True,
+            min_confidence_threshold=0.6,
+            enable_result_validation=True,
+            enable_fallback_chain=True,
+            log_detailed_processing=True
         )
-        self.web_search = WebSearchService(config.web_search)
-        self.response_generator = ResponseGenerator(config.web_search)
         
-        # Intelligent RAG 어댑터 초기화
-        self.intelligent_adapter = IntelligentRAGAdapter(config, llm_client)
+        # 통합 AI 서비스 초기화
+        try:
+            self.ai_service = IntegratedAIService(service_config)
+            self.service_available = True
+            logger.info("Next-generation AI service initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize next-gen AI service: {e}")
+            self.ai_service = None
+            self.service_available = False
+            
+            # 폴백: 기존 시스템 초기화
+            logger.info("Falling back to legacy system...")
+            self._initialize_legacy_system()
         
-        # 이미지 분석기 초기화 (선택적)
-        self.image_analyzer = None
-        self.multimodal_service = None
-        
-        # Florence-2 초기화 재시도 로직
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            try:
-                logger.info(f"Initializing Florence-2 image analyzer (attempt {attempt + 1}/{max_attempts})...")
-                # GPU 메모리 정리
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                
-                # 이미지 분석기 초기화
-                self.image_analyzer = Florence2ImageAnalyzer()
-                
-                if USE_SIMPLE_ANALYZER:
-                    # 단순화된 분석기는 embedding_model 파라미터가 필요 없음
-                    self.multimodal_service = MultimodalRAGService()
-                else:
-                    # 기존 분석기는 embedding_model 필요
-                    self.multimodal_service = MultimodalRAGService(
-                        self.image_analyzer,
-                        self.rag_system.embedding_model
-                    )
-                logger.info("Florence-2 image analyzer initialized successfully")
-                break
-            except torch.cuda.OutOfMemoryError:
-                logger.error(f"GPU out of memory during Florence-2 initialization (attempt {attempt + 1})")
-                # GPU 메모리 강제 정리
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-                self.image_analyzer = None
-                self.multimodal_service = None
-                
-                if attempt == max_attempts - 1:
-                    logger.error("Florence-2 initialization failed due to GPU memory. Image analysis will be disabled.")
-                else:
-                    time.sleep(3)  # GPU 메모리 정리를 위해 더 긴 대기
-            except Exception as e:
-                logger.warning(f"Failed to initialize image analyzer (attempt {attempt + 1}/{max_attempts}): {e}")
-                self.image_analyzer = None
-                self.multimodal_service = None
-                
-                if attempt == max_attempts - 1:  # 마지막 시도
-                    logger.error("Florence-2 initialization failed after all attempts")
-                else:
-                    # 다음 시도 전 대기
-                    time.sleep(2)
-        
-        # 대화 이력
+        # 대화 이력 및 세션 관리
         self.conversation_history = []
+        self.current_session_id = None
+        self.session_stats = {
+            'queries_count': 0,
+            'successful_responses': 0,
+            'failed_responses': 0,
+            'total_processing_time': 0.0
+        }
+    
+    def _initialize_legacy_system(self):
+        """레거시 시스템 초기화 (폴백용)"""
+        try:
+            # LLM 클라이언트 초기화
+            llm_client = LLMClient(self.config.llm)
+            
+            # 서버 대기
+            logger.info("Waiting for LLM server...")
+            if not llm_client.wait_for_server():
+                logger.error("Failed to connect to LLM server")
+                raise RuntimeError("LLM server connection failed")
+            
+            # 기존 컴포넌트 초기화
+            self.legacy_rag_system = RAGSystem(
+                rag_config=self.config.rag,
+                dataset_config=self.config.dataset,
+                llm_client=llm_client
+            )
+            self.legacy_web_search = WebSearchService(self.config.web_search)
+            self.legacy_response_generator = ResponseGenerator(self.config.web_search)
+            self.legacy_intelligent_adapter = IntelligentRAGAdapter(self.config, llm_client)
+            
+            self.legacy_available = True
+            logger.info("Legacy system initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Legacy system initialization failed: {e}")
+            self.legacy_available = False
         
     def process_query(
         self, 
         question: str, 
         history: List[Tuple[str, str]],
-        image: Optional[Image.Image] = None
+        image: Optional[Image.Image] = None,
+        processing_mode: Optional[str] = None,
+        reasoning_type: Optional[str] = None
     ) -> str:
         """
-        사용자 질의 처리
+        사용자 질의 처리 (차세대 통합 시스템)
         
         Args:
             question: 사용자 질문
             history: 대화 이력
             image: 선택적 이미지 입력
+            processing_mode: 처리 모드 (advanced, multimodal, basic)
+            reasoning_type: 추론 타입 (chain_of_thought, deductive, etc.)
             
         Returns:
             생성된 응답
         """
         start_time = time.time()
+        self.session_stats['queries_count'] += 1
         
         # 빈 질문 처리
         if not question or not question.strip():
             return "질문을 입력해주세요."
         
         try:
-            # Intelligent RAG 사용 여부 결정
-            context = {
-                'conversation_history': history,
-                'image': image
-            }
+            # 차세대 시스템 사용
+            if self.service_available and self.ai_service:
+                return self._process_with_nextgen_system(
+                    question, history, image, processing_mode, reasoning_type
+                )
             
-            use_intelligent = self.intelligent_adapter.should_use_intelligent(question, context)
+            # 폴백: 레거시 시스템 사용
+            elif hasattr(self, 'legacy_available') and self.legacy_available:
+                return self._process_with_legacy_system(question, history, image)
             
-            if use_intelligent:
-                logger.info("Using Intelligent RAG for complex query")
-                try:
-                    result = self.intelligent_adapter.process_sync(question, context)
-                    return result.get('response', "죄송합니다. 응답을 생성할 수 없습니다.")
-                except Exception as e:
-                    logger.error(f"Intelligent RAG failed, falling back to standard: {e}")
-            
-            # 표준 처리 (기존 로직)
-            # 이미지 분석 (이미지가 있는 경우)
-            image_context = None
-            original_question = question  # 원본 질문 저장
-            
+            else:
+                return "죄송합니다. 사용 가능한 AI 시스템이 없습니다."
+                
+        except Exception as e:
+            self.session_stats['failed_responses'] += 1
+            logger.error(f"Query processing failed: {e}")
+            return f"처리 중 오류가 발생했습니다: {str(e)}"
+    
+    def _process_with_nextgen_system(self, 
+                                   question: str, 
+                                   history: List[Tuple[str, str]], 
+                                   image: Optional[Image.Image],
+                                   processing_mode: Optional[str],
+                                   reasoning_type: Optional[str]) -> str:
+        """차세대 시스템으로 처리"""
+        try:
+            # 이미지 데이터 준비
+            image_data = None
             if image:
-                if self.multimodal_service and self.image_analyzer:
-                    try:
-                        logger.info("Processing image with Florence-2...")
-                        # 이미지 크기 확인 및 조정
-                        if hasattr(image, 'size'):
-                            width, height = image.size
-                            max_size = 1024
-                            if width > max_size or height > max_size:
-                                # 이미지 크기 조정
-                                ratio = min(max_size/width, max_size/height)
-                                new_width = int(width * ratio)
-                                new_height = int(height * ratio)
-                                image = image.resize((new_width, new_height), Image.LANCZOS)
-                                logger.info(f"Resized image from {width}x{height} to {new_width}x{new_height}")
-                        
-                        multimodal_result = self.multimodal_service.process_multimodal_query(
-                            question, image
-                        )
-                        # 이미지 분석 결과를 질문에 포함
-                        question = multimodal_result["combined_query"]
-                        image_context = multimodal_result.get("image_analysis", {})
-                        logger.info(f"Image analysis completed: {image_context}")
-                    except Exception as e:
-                        logger.error(f"Image analysis failed: {e}", exc_info=True)
-                        # Florence-2 실패 시에도 사용자에게 도움이 되는 응답 제공
-                        image_context = {
-                            "error": str(e),
-                            "caption": "[이미지 분석 실패]",
-                            "ocr_text": ""
-                        }
-                        # 질문은 원본 그대로 유지하여 텍스트 기반 검색 가능하게 함
-                        question = original_question
-                else:
-                    # Florence-2 초기화 실패 시
-                    logger.warning("Image analyzer not available")
-                    image_context = {
-                        "error": "Image analyzer not initialized",
-                        "caption": "[이미지 분석 기능 비활성화]",
-                        "ocr_text": ""
-                    }
-                    # 질문은 원본 그대로 유지
-                    question = original_question
+                import io
+                import base64
+                
+                # PIL 이미지를 바이트로 변환
+                img_buffer = io.BytesIO()
+                image.save(img_buffer, format='PNG')
+                img_buffer.seek(0)
+                image_data = img_buffer.read()
+            
+            # 세션 ID 관리
+            if not self.current_session_id:
+                self.current_session_id = str(uuid.uuid4())
+            
+            # 서비스 요청 생성
+            request = ServiceRequest(
+                request_id=str(uuid.uuid4()),
+                query=question,
+                image_data=image_data,
+                session_id=self.current_session_id,
+                processing_mode=processing_mode,
+                reasoning_type=reasoning_type,
+                metadata={
+                    'conversation_history': len(history),
+                    'has_image': image is not None
+                }
+            )
+            
+            # 비동기 처리를 동기로 래핑
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                response = loop.run_until_complete(
+                    self.ai_service.process_request(request)
+                )
+            finally:
+                loop.close()
+            
+            # 통계 업데이트
+            processing_time = response.processing_time
+            self.session_stats['total_processing_time'] += processing_time
+            
+            if response.success:
+                self.session_stats['successful_responses'] += 1
+                
+                # 대화 이력 업데이트
+                self.conversation_history.append((question, response.response))
+                
+                # 응답 구성
+                final_response = response.response
+                
+                # 메타데이터 정보 추가
+                if response.metadata:
+                    system_info = []
+                    if 'processing_system' in response.metadata:
+                        system_info.append(f"시스템: {response.metadata['processing_system']}")
+                    if 'system_capabilities' in response.metadata:
+                        capabilities = response.metadata['system_capabilities']
+                        if len(capabilities) > 3:
+                            system_info.append(f"기능: {', '.join(capabilities[:3])}...")
+                        else:
+                            system_info.append(f"기능: {', '.join(capabilities)}")
+                    
+                    if system_info:
+                        final_response += f"\n\n_[{', '.join(system_info)}]_"
+                
+                # 처리 시간 및 신뢰도 정보
+                final_response += (f"\n\n_응답시간: {processing_time:.2f}초, "
+                                 f"신뢰도: {response.confidence_score:.2f}_")
+                
+                return final_response
+                
+            else:
+                self.session_stats['failed_responses'] += 1
+                error_msg = response.response
+                if response.error_message:
+                    error_msg += f"\n\n오류 세부사항: {response.error_message}"
+                return error_msg
+                
+        except Exception as e:
+            logger.error(f"Next-gen system processing failed: {e}")
+            raise
+    
+    def _process_with_legacy_system(self, 
+                                  question: str, 
+                                  history: List[Tuple[str, str]], 
+                                  image: Optional[Image.Image]) -> str:
+        """레거시 시스템으로 처리"""
+        try:
+            # 기존 로직과 유사하지만 단순화
+            logger.info("Using legacy system for processing")
+            
+            # 이미지가 있으면 경고 메시지
+            image_warning = ""
+            if image:
+                image_warning = "\n\n⚠️ 레거시 모드에서는 이미지 분석이 제한적입니다."
             
             # RAG 검색 수행
-            results, max_score = self.rag_system.search(question)
+            results, max_score = self.legacy_rag_system.search(question)
             
-            # 응답 생성
-            response = self._generate_response(question, results, max_score, image_context)
+            # 신뢰도에 따른 응답 생성
+            if max_score >= 0.8:
+                response = results[0].answer if results else "관련 정보를 찾을 수 없습니다."
+            elif max_score >= 0.6:
+                # 중간 신뢰도: 웹 검색 추가
+                web_results = self.legacy_web_search.search(question)
+                context = self.legacy_response_generator.prepare_context(results, web_results)
+                prompt = self.legacy_response_generator.generate_prompt(question, context, "medium")
+                response = "RAG 시스템을 통해 검색된 정보를 바탕으로 답변드립니다.\n\n"
+                if results:
+                    response += results[0].answer
+                else:
+                    response += "관련 정보를 찾을 수 없습니다."
+            else:
+                response = "죄송합니다. 관련 정보를 찾을 수 없습니다."
             
-            # 응답 시간 추가
-            elapsed_time = time.time() - start_time
-            response += f"\n\n_응답시간: {elapsed_time:.2f}초_"
+            # 최종 응답 구성
+            final_response = response + image_warning
+            final_response += f"\n\n_[레거시 모드, 점수: {max_score:.3f}]_"
             
             # 대화 이력 업데이트
-            self.conversation_history.append((question, response))
+            self.conversation_history.append((question, final_response))
             
-            return response
+            return final_response
             
         except Exception as e:
-            logger.error(f"Query processing failed: {e}")
-            return "죄송합니다. 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+            logger.error(f"Legacy system processing failed: {e}")
+            return f"레거시 시스템 처리 중 오류가 발생했습니다: {str(e)}"
+    
+    def get_service_status(self) -> Dict[str, Any]:
+        """서비스 상태 조회"""
+        status = {
+            'next_gen_available': self.service_available,
+            'legacy_available': getattr(self, 'legacy_available', False),
+            'current_session_id': self.current_session_id,
+            'session_stats': self.session_stats.copy()
+        }
+        
+        # 차세대 시스템 상태 추가
+        if self.service_available and self.ai_service:
+            ai_status = self.ai_service.get_service_status()
+            status['ai_service_status'] = ai_status
+        
+        return status
     
     
     def _generate_response(
@@ -368,7 +478,7 @@ class ChatService:
 
 def create_gradio_app(config: Optional[Config] = None) -> gr.Blocks:
     """
-    Gradio 애플리케이션 생성
+    차세대 Gradio 애플리케이션 생성
     
     Args:
         config: 설정 객체 (없으면 기본값 사용)
@@ -380,17 +490,8 @@ def create_gradio_app(config: Optional[Config] = None) -> gr.Blocks:
     if config is None:
         config = Config()
     
-    # LLM 클라이언트 초기화
-    llm_client = LLMClient(config.llm)
-    
-    # 서버 대기
-    logger.info("Waiting for LLM server...")
-    if not llm_client.wait_for_server():
-        logger.error("Failed to connect to LLM server")
-        raise RuntimeError("LLM server connection failed")
-    
-    # 챗봇 서비스 초기화
-    chat_service = ChatService(config, llm_client)
+    # 차세대 챗봇 서비스 초기화
+    chat_service = NextGenChatService(config)
     
     # Gradio 인터페이스
     with gr.Blocks(title=config.app.title, theme=gr.themes.Soft()) as app:
@@ -434,13 +535,36 @@ def create_gradio_app(config: Optional[Config] = None) -> gr.Blocks:
                     label="클릭하여 사용"
                 )
         
+        # 고급 설정 패널
+        with gr.Accordion("🔧 고급 설정", open=False):
+            with gr.Row():
+                processing_mode = gr.Dropdown(
+                    choices=["auto", "advanced", "multimodal", "basic"],
+                    value="auto",
+                    label="처리 모드",
+                    info="auto: 자동 선택, advanced: 고급 AI, multimodal: 멀티모달, basic: 기본"
+                )
+                reasoning_type = gr.Dropdown(
+                    choices=["chain_of_thought", "deductive", "inductive", "abductive", "causal"],
+                    value="chain_of_thought",
+                    label="추론 타입",
+                    info="사고 과정의 유형 선택"
+                )
+        
         # 이벤트 핸들러
-        def respond(message: str, image, chat_history: List[Tuple[str, str]]):
-            """메시지 응답 처리"""
+        def respond(message: str, image, chat_history: List[Tuple[str, str]], 
+                   proc_mode: str, reason_type: str):
+            """메시지 응답 처리 (차세대 시스템)"""
             if not message.strip():
-                return "", None, chat_history
+                return "", None, chat_history, proc_mode, reason_type
             
-            response = chat_service.process_query(message, chat_history, image)
+            # 처리 모드 결정
+            selected_mode = None if proc_mode == "auto" else proc_mode
+            selected_reasoning = None if reason_type == "chain_of_thought" else reason_type
+            
+            response = chat_service.process_query(
+                message, chat_history, image, selected_mode, selected_reasoning
+            )
             
             # 이미지가 있는 경우 대화에 표시
             if image:
@@ -448,52 +572,101 @@ def create_gradio_app(config: Optional[Config] = None) -> gr.Blocks:
             else:
                 chat_history.append((message, response))
             
-            return "", None, chat_history
+            return "", None, chat_history, proc_mode, reason_type
         
         def clear_chat():
             """대화 초기화"""
             chat_service.conversation_history.clear()
-            return None, "", None
+            # 세션 ID도 리셋
+            chat_service.current_session_id = None
+            return None, "", None, "auto", "chain_of_thought"
         
         # 이벤트 바인딩
-        submit.click(respond, [msg, image_input, chatbot], [msg, image_input, chatbot])
-        msg.submit(respond, [msg, image_input, chatbot], [msg, image_input, chatbot])
-        clear.click(clear_chat, None, [chatbot, msg, image_input])
+        submit.click(
+            respond, 
+            [msg, image_input, chatbot, processing_mode, reasoning_type], 
+            [msg, image_input, chatbot, processing_mode, reasoning_type]
+        )
+        msg.submit(
+            respond, 
+            [msg, image_input, chatbot, processing_mode, reasoning_type], 
+            [msg, image_input, chatbot, processing_mode, reasoning_type]
+        )
+        clear.click(
+            clear_chat, 
+            None, 
+            [chatbot, msg, image_input, processing_mode, reasoning_type]
+        )
         
         # 통계 표시
         with gr.Accordion("📊 서비스 통계", open=False):
             with gr.Row():
-                stats_display = gr.Textbox(
-                    label="통계",
-                    interactive=False,
-                    lines=6
-                )
+                with gr.Column():
+                    stats_display = gr.Textbox(
+                        label="세션 통계",
+                        interactive=False,
+                        lines=8
+                    )
+                with gr.Column():
+                    system_status_display = gr.Textbox(
+                        label="시스템 상태",
+                        interactive=False,
+                        lines=8
+                    )
                 
                 def update_stats():
                     """통계 업데이트"""
-                    stats = chat_service.rag_system.get_stats()
-                    total = stats['total_queries']
-                    
-                    if total > 0:
-                        high_pct = (stats['high_confidence_hits'] / total) * 100
-                        medium_pct = (stats['medium_confidence_hits'] / total) * 100
-                        low_pct = (stats['low_confidence_hits'] / total) * 100
-                    else:
-                        high_pct = medium_pct = low_pct = 0
-                    
-                    return (
-                        f"총 쿼리 수: {total}\n"
-                        f"높은 신뢰도: {stats['high_confidence_hits']} ({high_pct:.1f}%)\n"
-                        f"중간 신뢰도: {stats['medium_confidence_hits']} ({medium_pct:.1f}%)\n"
-                        f"낮은 신뢰도: {stats['low_confidence_hits']} ({low_pct:.1f}%)\n"
-                        f"평균 응답시간: {stats['avg_response_time']:.2f}초"
-                    )
+                    try:
+                        service_status = chat_service.get_service_status()
+                        session_stats = service_status['session_stats']
+                        
+                        # 세션 통계
+                        total_queries = session_stats['queries_count']
+                        success_rate = 0.0
+                        avg_time = 0.0
+                        
+                        if total_queries > 0:
+                            success_rate = (session_stats['successful_responses'] / total_queries) * 100
+                            avg_time = session_stats['total_processing_time'] / total_queries
+                        
+                        session_info = (
+                            f"세션 ID: {service_status['current_session_id'] or 'None'}\n"
+                            f"총 질문 수: {total_queries}\n"
+                            f"성공한 응답: {session_stats['successful_responses']}\n"
+                            f"실패한 응답: {session_stats['failed_responses']}\n"
+                            f"성공률: {success_rate:.1f}%\n"
+                            f"평균 처리시간: {avg_time:.2f}초\n"
+                            f"총 처리시간: {session_stats['total_processing_time']:.2f}초"
+                        )
+                        
+                        # 시스템 상태
+                        system_info = (
+                            f"차세대 시스템: {'✅ 사용 가능' if service_status['next_gen_available'] else '❌ 비활성화'}\n"
+                            f"레거시 시스템: {'✅ 사용 가능' if service_status['legacy_available'] else '❌ 비활성화'}\n"
+                        )
+                        
+                        # AI 서비스 상태 추가
+                        if 'ai_service_status' in service_status:
+                            ai_status = service_status['ai_service_status']
+                            system_info += (
+                                f"AI 서비스 상태: {ai_status['status']}\n"
+                                f"사용 가능한 시스템: {len(ai_status['available_systems'])}\n"
+                                f"지원 기능: {len(ai_status['capabilities'])}\n"
+                                f"활성 요청: {ai_status['active_requests']}\n"
+                                f"캐시 크기: {ai_status['cache_size']}"
+                            )
+                        
+                        return session_info, system_info
+                        
+                    except Exception as e:
+                        error_msg = f"통계 조회 실패: {str(e)}"
+                        return error_msg, error_msg
                 
                 refresh_stats = gr.Button("새로고침", size="sm")
-                refresh_stats.click(update_stats, None, stats_display)
+                refresh_stats.click(update_stats, None, [stats_display, system_status_display])
                 
                 # 초기 통계 표시
-                app.load(update_stats, None, stats_display)
+                app.load(update_stats, None, [stats_display, system_status_display])
     
     return app
 
