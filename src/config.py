@@ -97,12 +97,15 @@ class WebSearchConfig:
 class OpenAIConfig:
     """OpenAI API 설정"""
     api_key: Optional[str] = None
-    vision_model: str = "gpt-4.1"  # 최고성능 모델: gpt-4.1 ($2.0/$8.0) - 고품질 이미지+텍스트 처리
-    text_model: str = "gpt-4.1"  # 통합 고성능 모델 사용
+    # 비용 효율적 모델: gpt-4o-mini-2024-07-18 ($0.15/$0.60 per 1M tokens)
+    vision_model: str = "gpt-4o-mini-2024-07-18"  # 이미지+텍스트 처리용
+    text_model: str = "gpt-4o-mini-2024-07-18"    # 일반 텍스트 처리용
+    # 고성능 모델: gpt-4_1-2025-04-14 ($2.0/$8.0 per 1M tokens) - 복잡한 작업용
+    premium_model: str = "gpt-4_1-2025-04-14"     # 고품질/복잡한 작업용
     max_tokens: int = 1000
     temperature: float = 0.2
-    use_vision_api: bool = True  # Vision API 사용 여부 - 재활성화
-    use_for_llm: bool = True  # LLM 응답 생성에 사용 여부 - 재활성화
+    use_vision_api: bool = True  # Vision API 사용 여부
+    use_for_llm: bool = True  # LLM 응답 생성에 사용 여부
     
     def __post_init__(self):
         """초기화 후 처리"""

@@ -490,10 +490,20 @@ class OpenAIVisionClient:
         return min(1.0, score)
     
     def _calculate_cost(self, token_usage: Dict[str, int]) -> float:
-        """비용 계산 (gpt-4.1 기준)"""
-        # gpt-4.1 가격: $0.002/1K input tokens, $0.008/1K output tokens  
-        input_cost = token_usage.get('prompt_tokens', 0) * 0.002 / 1000
-        output_cost = token_usage.get('completion_tokens', 0) * 0.008 / 1000
+        """비용 계산 (모델별 자동 계산)"""
+        # 사용 중인 모델에 따라 비용 계산
+        if "gpt-4o-mini" in self.model:
+            # gpt-4o-mini-2024-07-18 가격: $0.15/1M input tokens, $0.60/1M output tokens
+            input_cost = token_usage.get('prompt_tokens', 0) * 0.15 / 1_000_000
+            output_cost = token_usage.get('completion_tokens', 0) * 0.60 / 1_000_000
+        elif "gpt-4_1" in self.model or "gpt-4.1" in self.model:
+            # gpt-4_1-2025-04-14 가격: $2.0/1M input tokens, $8.0/1M output tokens
+            input_cost = token_usage.get('prompt_tokens', 0) * 2.0 / 1_000_000
+            output_cost = token_usage.get('completion_tokens', 0) * 8.0 / 1_000_000
+        else:
+            # 기본값 (gpt-4o-mini 기준)
+            input_cost = token_usage.get('prompt_tokens', 0) * 0.15 / 1_000_000
+            output_cost = token_usage.get('completion_tokens', 0) * 0.60 / 1_000_000
         return input_cost + output_cost
     
     def _create_error_result(self, error_message: str, start_time: float) -> VisionAnalysisResult:

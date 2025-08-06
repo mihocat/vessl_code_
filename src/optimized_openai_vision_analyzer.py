@@ -291,10 +291,20 @@ class OptimizedOpenAIVisionAnalyzer:
             }
     
     def _calculate_cost(self, usage) -> float:
-        """토큰 사용량 기반 비용 계산 (gpt-4.1 기준)"""
-        # gpt-4.1 가격: Input $2.0/1M tokens, Output $8.0/1M tokens
-        input_cost = (usage.prompt_tokens / 1_000_000) * 2.0
-        output_cost = (usage.completion_tokens / 1_000_000) * 8.0
+        """토큰 사용량 기반 비용 계산 (모델별 자동 계산)"""
+        # 사용 중인 모델에 따라 비용 계산
+        if "gpt-4o-mini" in self.model:
+            # gpt-4o-mini-2024-07-18 가격: Input $0.15/1M tokens, Output $0.60/1M tokens
+            input_cost = (usage.prompt_tokens / 1_000_000) * 0.15
+            output_cost = (usage.completion_tokens / 1_000_000) * 0.60
+        elif "gpt-4_1" in self.model or "gpt-4.1" in self.model:
+            # gpt-4_1-2025-04-14 가격: Input $2.0/1M tokens, Output $8.0/1M tokens
+            input_cost = (usage.prompt_tokens / 1_000_000) * 2.0
+            output_cost = (usage.completion_tokens / 1_000_000) * 8.0
+        else:
+            # 기본값 (gpt-4o-mini 기준)
+            input_cost = (usage.prompt_tokens / 1_000_000) * 0.15
+            output_cost = (usage.completion_tokens / 1_000_000) * 0.60
         return input_cost + output_cost
     
     def _extract_formulas(self, content: str) -> list:
