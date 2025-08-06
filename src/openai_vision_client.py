@@ -290,9 +290,9 @@ class OpenAIVisionClient:
                 }
                 logger.info(f"✅ OpenAI Vision API 응답 완료: {response_info}")
                 
-                # 상세 응답 내용 로깅 (처음 200자만)
+                # 상세 응답 내용 로깅 (처음 500자만)
                 if response.choices and response.choices[0].message.content:
-                    content_preview = response.choices[0].message.content[:200] + "..." if len(response.choices[0].message.content) > 200 else response.choices[0].message.content
+                    content_preview = response.choices[0].message.content[:500] + "..." if len(response.choices[0].message.content) > 500 else response.choices[0].message.content
                     logger.info(f"📝 응답 내용 미리보기: {content_preview}")
             
             return response
