@@ -283,7 +283,8 @@ class IntegratedPipeline:
         if rag_results:
             rag_context = []
             for i, result in enumerate(rag_results[:5], 1):  # 상위 5개만
-                rag_context.append(f"참고자료 {i}: {result.content[:500]}...")
+                # SearchResult 클래스의 올바른 속성 사용: answer (content가 아님)
+                rag_context.append(f"참고자료 {i}: {result.answer[:500]}...")
             if rag_context:
                 context_parts.append("관련 전문 자료:\n" + "\n".join(rag_context))
         
