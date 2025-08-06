@@ -174,7 +174,10 @@ class IntegratedPipeline:
                 prompt = self._build_prompt(context, question, analysis_result)
                 
                 # LLM 답변 생성 시도
-                final_answer = self.llm_client.generate_response(prompt)
+                final_answer = self.llm_client.generate_response(
+                    question=question,
+                    context=context
+                )
                 processing_times['llm_generation'] = time.time() - step3_start
                 
                 # LLM 연결 실패 시 에러 메시지만 제공 (OpenAI 폴백 제거)
@@ -354,7 +357,10 @@ class IntegratedPipeline:
         if self.llm_client:
             try:
                 # 간단한 생성 테스트
-                response = self.llm_client.generate_response("안녕하세요", max_tokens=10)
+                response = self.llm_client.generate_response(
+                    question="안녕하세요", 
+                    max_tokens=10
+                )
                 status['llm_client'] = True
             except Exception as e:
                 logger.error(f"LLM client health check failed: {e}")
