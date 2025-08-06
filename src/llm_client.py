@@ -238,6 +238,49 @@ class LLMClient:
         """컨텍스트 관리자 진입"""
         return self
     
+    def generate_response(
+        self, 
+        question: str, 
+        context: str = "", 
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None
+    ) -> str:
+        """
+        응답 생성 - integrated_pipeline.py와의 호환성을 위한 메서드
+        
+        Args:
+            question: 사용자 질문
+            context: 참고 컨텍스트 (RAG 결과)
+            max_tokens: 최대 토큰 수
+            temperature: 생성 온도
+            
+        Returns:
+            LLM 응답 텍스트
+        """
+        logger.info(f"🤖 LLM generate_response 시작: {question[:100]}...")
+        
+        try:
+            start_time = time.time()
+            
+            # query 메서드를 호출하여 응답 생성
+            response = self.query(
+                prompt=question,
+                context=context,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            
+            generation_time = time.time() - start_time
+            logger.info(f"✅ LLM 응답 생성 완료 ({generation_time:.2f}초)")
+            logger.info(f"📝 LLM 응답 길이: {len(response)}자")
+            logger.info(f"📋 LLM 응답 미리보기: {response[:200]}...")
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"❌ LLM 응답 생성 실패: {str(e)}")
+            return "죄송합니다. LLM 응답 생성 중 오류가 발생했습니다."
+    
     def __exit__(self, exc_type, exc_val, exc_tb):
         """컨텍스트 관리자 종료"""
         self.close()
