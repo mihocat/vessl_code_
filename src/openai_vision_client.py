@@ -59,7 +59,7 @@ class OpenAIVisionClient:
         self.client = OpenAI(api_key=self.api_key)
         
         # 모델 설정 (비용 최적화)
-        self.model = self.config.get('vision_model', 'gpt-4o-mini')  # 94% 비용 절감
+        self.model = self.config.get('vision_model', 'gpt-4o-mini')  # 최저비용 멀티모달
         self.max_tokens = self.config.get('max_tokens', 4000)
         self.temperature = self.config.get('temperature', 0.1)
         

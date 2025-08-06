@@ -97,8 +97,8 @@ class WebSearchConfig:
 class OpenAIConfig:
     """OpenAI API 설정"""
     api_key: Optional[str] = None
-    vision_model: str = "gpt-4o-mini"  # 94% 비용 절감: gpt-4o-mini ($0.15/$0.60) vs gpt-4o ($2.50/$10.00)
-    text_model: str = "gpt-4-turbo-preview"  # gpt-4-turbo, gpt-3.5-turbo
+    vision_model: str = "gpt-4o-mini"  # 최저비용 멀티모달: gpt-4o-mini ($0.15/$0.60) - 이미지+텍스트 동시처리
+    text_model: str = "gpt-4o-mini"  # 1개 모델 통일 사용으로 비용 최적화
     max_tokens: int = 1000
     temperature: float = 0.2
     use_vision_api: bool = True  # Vision API 사용 여부 - 재활성화
