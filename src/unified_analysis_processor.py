@@ -59,9 +59,10 @@ class UnifiedAnalysisProcessor:
         self.max_tokens = self.config.get('max_tokens', 300)  # 분석만 수행하므로 제한
         self.temperature = self.config.get('temperature', 0.1)
         
-        # 호출 제한 추적
+        # 1회 호출 제한 추적
         self._call_count = 0
-        self._max_calls_per_query = self.config.get('max_calls_per_query', 1)
+        self._max_calls_per_query = 1  # 무조건 1회만 호출
+        self._session_calls = 0  # 세션 전체 호출 추적
         
         logger.info(f"Unified Analysis Processor initialized - Model: {self.model}, Max tokens: {self.max_tokens}")
     
@@ -115,14 +116,20 @@ class UnifiedAnalysisProcessor:
         Returns:
             AnalysisResult: 분석 결과
         """
+        # 엄격한 1회 호출 제한
         if self._call_count >= self._max_calls_per_query:
+            logger.warning(f"🚫 OpenAI API 호출 제한 초과 (허용: {self._max_calls_per_query}회, 시도: {self._call_count + 1}회)")
             return AnalysisResult(
                 success=False,
-                error_message=f"질의당 최대 {self._max_calls_per_query}회 호출 제한 초과"
+                error_message=f"OpenAI API는 질의당 최대 {self._max_calls_per_query}회만 호출 가능합니다."
             )
         
         start_time = time.time()
         self._call_count += 1
+        self._session_calls += 1
+        
+        logger.info(f"🚀 OpenAI Unified Analysis 요청 시작 (Model: {self.model})")
+        logger.info(f"📊 호출 추적: 질의내 {self._call_count}/{self._max_calls_per_query}회, 세션내 {self._session_calls}회")
         
         try:
             # 메시지 구성
