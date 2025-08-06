@@ -59,7 +59,7 @@ class OpenAIVisionClient:
         self.client = OpenAI(api_key=self.api_key)
         
         # 모델 설정 (비용 최적화)
-        self.model = self.config.get('vision_model', 'gpt-4o-mini')  # 최저비용 멀티모달
+        self.model = self.config.get('vision_model', 'gpt-4.1')  # 최고성능 멀티모달
         self.max_tokens = self.config.get('max_tokens', 4000)
         self.temperature = self.config.get('temperature', 0.1)
         
@@ -490,10 +490,10 @@ class OpenAIVisionClient:
         return min(1.0, score)
     
     def _calculate_cost(self, token_usage: Dict[str, int]) -> float:
-        """비용 계산 (gpt-4o-mini 기준)"""
-        # gpt-4o-mini 가격: $0.00015/1K input tokens, $0.0006/1K output tokens
-        input_cost = token_usage.get('prompt_tokens', 0) * 0.00015 / 1000
-        output_cost = token_usage.get('completion_tokens', 0) * 0.0006 / 1000
+        """비용 계산 (gpt-4.1 기준)"""
+        # gpt-4.1 가격: $0.002/1K input tokens, $0.008/1K output tokens  
+        input_cost = token_usage.get('prompt_tokens', 0) * 0.002 / 1000
+        output_cost = token_usage.get('completion_tokens', 0) * 0.008 / 1000
         return input_cost + output_cost
     
     def _create_error_result(self, error_message: str, start_time: float) -> VisionAnalysisResult:
