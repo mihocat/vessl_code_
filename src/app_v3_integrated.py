@@ -88,13 +88,19 @@ class IntegratedChatService:
         skip_vllm = os.getenv("SKIP_VLLM", "false").lower() == "true"
         use_llm_flag = not skip_vllm
         
-        # 파이프라인 처리 - 단계별 상세 로깅
+        # 파이프라인 처리 - 경로별 상세 로깅
         logger.info(f"📋 [QUERY-{query_id}] 파이프라인 입력 파라미터:")
         logger.info(f"   - use_rag: True")
         logger.info(f"   - use_llm: {use_llm_flag}")
         logger.info(f"   - SKIP_VLLM: {skip_vllm}")
         logger.info(f"   - 질문 길이: {len(question)}자")
         logger.info(f"   - 이미지: {'포함' if image else '없음'}")
+        
+        # 파이프라인 경로 확인 및 로깅
+        if image is not None:
+            logger.info(f"🖼️ [QUERY-{query_id}] 선택된 파이프라인: OpenAI → RAG → LLM (이미지 포함)")
+        else:
+            logger.info(f"📝 [QUERY-{query_id}] 선택된 파이프라인: RAG → LLM (텍스트 전용)")
         
         result = self.pipeline.process_query(
             question=question,
@@ -108,6 +114,8 @@ class IntegratedChatService:
         if result.success:
             logger.info(f"   ✅ 처리 성공")
             logger.info(f"   📝 최종 답변 길이: {len(result.final_answer)}자")
+            
+            # OpenAI 분석 결과 (이미지 포함 질의인 경우에만)
             if result.analysis_result:
                 analysis = result.analysis_result
                 logger.info(f"   🔍 OpenAI 분석: 성공")
@@ -116,8 +124,15 @@ class IntegratedChatService:
                     logger.info(f"     - 토큰: {tokens.get('total_tokens', 0)}개")
                 if analysis.get('cost'):
                     logger.info(f"     - 비용: ${analysis['cost']:.4f}")
+            else:
+                # 텍스트 전용 질의인 경우
+                logger.info(f"   📝 OpenAI 분석: 건너뜀 (텍스트 전용 질의)")
+            
+            # RAG 검색 결과
             if result.rag_results:
                 logger.info(f"   📚 RAG 검색: {len(result.rag_results)}개 문서")
+            
+            # 처리 시간 분석
             if result.processing_times:
                 times = result.processing_times
                 logger.info(f"   ⏱️ 단계별 시간:")
@@ -162,12 +177,15 @@ class IntegratedChatService:
         logger.info(f"   - 파이프라인: {pipeline_time:.2f}초 ({pipeline_time/total_time*100:.1f}%)")
         if result.success and result.processing_times:
             times = result.processing_times
+            # OpenAI 분석 시간 (이미지 포함 질의인 경우에만)
             if 'openai_analysis' in times:
                 openai_time = times['openai_analysis']
                 logger.info(f"   - OpenAI 분석: {openai_time:.2f}초 ({openai_time/total_time*100:.1f}%)")
+            # RAG 검색 시간
             if 'rag_search' in times:
                 rag_time = times['rag_search']
                 logger.info(f"   - RAG 검색: {rag_time:.2f}초 ({rag_time/total_time*100:.1f}%)")
+            # LLM 생성 시간
             if 'llm_generation' in times:
                 llm_time = times['llm_generation']
                 logger.info(f"   - LLM 생성: {llm_time:.2f}초 ({llm_time/total_time*100:.1f}%)")

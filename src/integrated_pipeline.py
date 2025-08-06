@@ -117,55 +117,87 @@ class IntegratedPipeline:
         self.openai_processor.reset_call_count()  # 질의당 호출 횟수 초기화
         
         try:
-            # ========== 단계 1: OpenAI 통합 분석 (1회 호출) ==========
-            step1_start = time.time()
-            pipeline_steps.append("OpenAI_Analysis")
-            
-            logger.info("🔍 단계 1: OpenAI GPT-4.1 통합 분석 시작")
-            analysis_result = self.openai_processor.analyze_image_and_text(question, image)
-            
-            if not analysis_result.success:
-                return PipelineResult(
-                    success=False,
-                    final_answer="이미지 분석에 실패했습니다.",
-                    error_message=analysis_result.error_message,
-                    pipeline_steps=pipeline_steps
-                )
-            
-            processing_times['openai_analysis'] = time.time() - step1_start
-            total_cost += analysis_result.cost or 0.0
-            self.processing_stats['openai_calls'] += 1
-            
-            logger.info(f"✅ OpenAI 분석 완료 - 비용: ${analysis_result.cost:.4f}")
-            
-            # ========== 단계 2: RAG 검색 ==========
+            analysis_result = None
             rag_results = []
-            if use_rag and self.rag_system:
-                step2_start = time.time()
-                pipeline_steps.append("RAG_Search")
-                
-                logger.info("📚 단계 2: RAG 검색 시작")
-                
-                # 검색 쿼리 구성 (분석 결과 활용)
-                search_query = question
-                if analysis_result.key_concepts:
-                    search_query += " " + " ".join(analysis_result.key_concepts[:3])
-                if analysis_result.extracted_text:
-                    search_query += " " + analysis_result.extracted_text[:200]
-                
-                rag_results, max_score = self.rag_system.search(search_query)
-                processing_times['rag_search'] = time.time() - step2_start
-                
-                logger.info(f"📚 RAG 검색 완료 - {len(rag_results)}개 문서 발견, 최고점수: {max_score:.3f}")
-            else:
-                logger.warning("⚠️ RAG 시스템 비활성화 또는 초기화 실패")
             
-            # ========== 단계 3: 파인튜닝 LLM 최종 답변 생성 ==========
+            # ========== 이미지 유무에 따른 파이프라인 분기 ==========
+            if image is not None:
+                # 경로 1: 이미지 포함 → OpenAI → RAG → LLM
+                logger.info("🖼️ 이미지 포함 질의 - OpenAI → RAG → LLM 파이프라인 시작")
+                
+                # 단계 1: OpenAI 통합 분석 (이미지 처리)
+                step1_start = time.time()
+                pipeline_steps.append("OpenAI_Analysis")
+                
+                logger.info("🔍 단계 1: OpenAI GPT-4.1 이미지+텍스트 통합 분석 시작")
+                analysis_result = self.openai_processor.analyze_image_and_text(question, image)
+                
+                if not analysis_result.success:
+                    return PipelineResult(
+                        success=False,
+                        final_answer="이미지 분석에 실패했습니다.",
+                        error_message=analysis_result.error_message,
+                        pipeline_steps=pipeline_steps
+                    )
+                
+                processing_times['openai_analysis'] = time.time() - step1_start
+                total_cost += analysis_result.cost or 0.0
+                self.processing_stats['openai_calls'] += 1
+                
+                logger.info(f"✅ OpenAI 이미지 분석 완료 - 비용: ${analysis_result.cost:.4f}")
+                
+                # 단계 2: RAG 검색 (OpenAI 분석 결과 활용)
+                if use_rag and self.rag_system:
+                    step2_start = time.time()
+                    pipeline_steps.append("RAG_Search")
+                    
+                    logger.info("📚 단계 2: RAG 검색 시작 (OpenAI 분석 결과 활용)")
+                    
+                    # 검색 쿼리 구성 (OpenAI 분석 결과 활용)
+                    search_query = question
+                    if analysis_result.key_concepts:
+                        search_query += " " + " ".join(analysis_result.key_concepts[:3])
+                    if analysis_result.extracted_text:
+                        search_query += " " + analysis_result.extracted_text[:200]
+                    
+                    rag_results, max_score = self.rag_system.search(search_query)
+                    processing_times['rag_search'] = time.time() - step2_start
+                    
+                    logger.info(f"📚 RAG 검색 완료 - {len(rag_results)}개 문서 발견, 최고점수: {max_score:.3f}")
+                else:
+                    logger.warning("⚠️ RAG 시스템 비활성화 또는 초기화 실패")
+                    
+            else:
+                # 경로 2: 텍스트만 → RAG → LLM (OpenAI 건너뛰기)
+                logger.info("📝 텍스트 전용 질의 - RAG → LLM 파이프라인 시작")
+                
+                # 단계 1: RAG 검색 (텍스트 기반)
+                if use_rag and self.rag_system:
+                    step1_start = time.time()
+                    pipeline_steps.append("RAG_Search")
+                    
+                    logger.info("🔍 단계 1: RAG 검색 시작 (텍스트 전용)")
+                    
+                    # 검색 쿼리 구성 (질문 텍스트만 사용)
+                    search_query = question
+                    
+                    rag_results, max_score = self.rag_system.search(search_query)
+                    processing_times['rag_search'] = time.time() - step1_start
+                    
+                    logger.info(f"📚 RAG 검색 완료 - {len(rag_results)}개 문서 발견, 최고점수: {max_score:.3f}")
+                else:
+                    logger.warning("⚠️ RAG 시스템 비활성화 또는 초기화 실패")
+            
+            # ========== 최종 단계: 파인튜닝 LLM 답변 생성 ==========
             if use_llm and self.llm_client:
-                step3_start = time.time()
+                llm_step_start = time.time()
                 pipeline_steps.append("LLM_Response")
                 
-                logger.info("🤖 단계 3: 파인튜닝 LLM 답변 생성 시작")
+                # 파이프라인 경로에 따른 로깅
+                if image is not None:
+                    logger.info("🤖 단계 3: 파인튜닝 LLM 답변 생성 시작 (이미지+텍스트)")
+                else:
+                    logger.info("🤖 단계 2: 파인튜닝 LLM 답변 생성 시작 (텍스트 전용)")
                 
                 # 컨텍스트 구성
                 context = self._build_context(analysis_result, rag_results, question)
@@ -178,46 +210,67 @@ class IntegratedPipeline:
                     question=question,
                     context=context
                 )
-                processing_times['llm_generation'] = time.time() - step3_start
+                processing_times['llm_generation'] = time.time() - llm_step_start
                 
-                # LLM 연결 실패 시 에러 메시지만 제공 (OpenAI 폴백 제거)
+                # LLM 연결 실패 시 에러 메시지 (파이프라인 경로별로 다른 메시지)
                 if "응답 생성 중 오류가 발생했습니다" in final_answer or len(final_answer) < 50:
                     logger.error("❌ LLM 서버 연결 실패 - 파인튜닝 모델 사용 불가")
-                    final_answer = f"""죄송합니다. 현재 파인튜닝된 모델 서버에 연결할 수 없습니다.
+                    
+                    if image is not None:
+                        # 이미지 포함 질의 실패
+                        final_answer = f"""죄송합니다. 현재 파인튜닝된 모델 서버에 연결할 수 없습니다.
 
 **처리 완료된 단계:**
 ✅ OpenAI 이미지 분석: 완료
 ✅ RAG 문서 검색: {len(rag_results)}개 결과
-❌ 파인튜닝 LLM: 연결 실패
+❌ 파인튜닝 LLM: 연결 실패"""
+                    else:
+                        # 텍스트 전용 질의 실패
+                        final_answer = f"""죄송합니다. 현재 파인튜닝된 모델 서버에 연결할 수 없습니다.
+
+**처리 완료된 단계:**
+✅ RAG 문서 검색: {len(rag_results)}개 결과  
+❌ 파인튜닝 LLM: 연결 실패"""
 
 시스템 관리자에게 문의하시거나 잠시 후 다시 시도해 주세요."""
                 
                 logger.info("🤖 최종 답변 생성 완료")
                 
             else:
-                logger.info("⚠️ 파인튜닝 LLM 단계 건너뛰기 - OpenAI 분석 결과 기반 답변 제공")
+                logger.info("⚠️ 파인튜닝 LLM 단계 건너뛰기 - 기본 답변 제공")
                 
-                # OpenAI 분석 결과를 활용한 답변 구성
-                if analysis_result and analysis_result.extracted_text:
-                    # OpenAI 분석에서 추출된 텍스트를 기반으로 답변 구성
-                    final_answer = f"""**OpenAI GPT-4.1 분석 결과:**
+                # 파이프라인 경로별 fallback 답변 구성
+                if image is not None:
+                    # 이미지 포함 질의 - OpenAI 분석 결과 활용
+                    if analysis_result and hasattr(analysis_result, 'extracted_text') and analysis_result.extracted_text:
+                        final_answer = f"""**OpenAI GPT-4.1 이미지 분석 결과:**
 
 {analysis_result.extracted_text}
 
 **참고사항:**
 - 현재 파인튜닝된 전기공학 전문 모델은 비활성화 상태입니다
-- 위 답변은 OpenAI GPT-4.1의 분석 결과입니다
+- 위 답변은 OpenAI GPT-4.1의 이미지 분석 결과입니다
 - 더 전문적인 답변이 필요하시면 시스템 관리자에게 문의해 주세요"""
-                else:
-                    # 분석 결과가 없는 경우 기본 메시지
-                    final_answer = f"""**OpenAI 분석 결과 요약:**
+                    else:
+                        final_answer = f"""**이미지 분석 결과:**
 
 질문: {question[:100]}{'...' if len(question) > 100 else ''}
 
 현재 파인튜닝된 전기공학 전문 모델이 비활성화되어 있어 상세한 전문 분석을 제공할 수 없습니다.
 
 **처리 완료된 단계:**
-✅ OpenAI 분석: 완료
+✅ OpenAI 이미지 분석: 완료
+✅ RAG 검색: {len(rag_results)}개 문서
+⚠️ 파인튜닝 LLM: 비활성화됨"""
+                else:
+                    # 텍스트 전용 질의 - RAG 결과 기반
+                    final_answer = f"""**텍스트 질의 처리 결과:**
+
+질문: {question[:100]}{'...' if len(question) > 100 else ''}
+
+현재 파인튜닝된 전기공학 전문 모델이 비활성화되어 있어 상세한 전문 분석을 제공할 수 없습니다.
+
+**처리 완료된 단계:**
 ✅ RAG 검색: {len(rag_results)}개 문서
 ⚠️ 파인튜닝 LLM: 비활성화됨
 
@@ -232,17 +285,22 @@ class IntegratedPipeline:
             
             logger.info(f"✅ 통합 파이프라인 완료 - 총 시간: {total_time:.2f}s, 비용: ${total_cost:.4f}")
             
+            # 분석 결과 구성 (이미지 포함 질의인 경우에만)
+            analysis_dict = None
+            if analysis_result is not None:
+                analysis_dict = {
+                    'extracted_text': getattr(analysis_result, 'extracted_text', ''),
+                    'formulas': getattr(analysis_result, 'formulas', []),
+                    'key_concepts': getattr(analysis_result, 'key_concepts', []),
+                    'question_intent': getattr(analysis_result, 'question_intent', ''),
+                    'token_usage': getattr(analysis_result, 'token_usage', {}),
+                    'cost': getattr(analysis_result, 'cost', 0.0)
+                }
+            
             return PipelineResult(
                 success=True,
                 final_answer=final_answer,
-                analysis_result={
-                    'extracted_text': analysis_result.extracted_text,
-                    'formulas': analysis_result.formulas,
-                    'key_concepts': analysis_result.key_concepts,
-                    'question_intent': analysis_result.question_intent,
-                    'token_usage': analysis_result.token_usage,
-                    'cost': analysis_result.cost
-                },
+                analysis_result=analysis_dict,
                 rag_results=rag_results,
                 processing_times=processing_times,
                 total_cost=total_cost,
@@ -272,15 +330,16 @@ class IntegratedPipeline:
         """컨텍스트 구성"""
         context_parts = []
         
-        # OpenAI 분석 결과
-        if analysis_result.extracted_text:
-            context_parts.append(f"이미지에서 추출된 텍스트:\n{analysis_result.extracted_text}")
-        
-        if analysis_result.formulas:
-            context_parts.append(f"감지된 수식:\n" + "\n".join(analysis_result.formulas))
-        
-        if analysis_result.key_concepts:
-            context_parts.append(f"핵심 개념:\n" + ", ".join(analysis_result.key_concepts))
+        # OpenAI 분석 결과 (이미지 포함 질의인 경우에만 존재)
+        if analysis_result is not None:
+            if hasattr(analysis_result, 'extracted_text') and analysis_result.extracted_text:
+                context_parts.append(f"이미지에서 추출된 텍스트:\n{analysis_result.extracted_text}")
+            
+            if hasattr(analysis_result, 'formulas') and analysis_result.formulas:
+                context_parts.append(f"감지된 수식:\n" + "\n".join(analysis_result.formulas))
+            
+            if hasattr(analysis_result, 'key_concepts') and analysis_result.key_concepts:
+                context_parts.append(f"핵심 개념:\n" + ", ".join(analysis_result.key_concepts))
         
         # RAG 검색 결과
         if rag_results:
