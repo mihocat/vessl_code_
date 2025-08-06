@@ -167,6 +167,9 @@ class UnifiedAnalysisProcessor:
                 })
             
             logger.info(f"🚀 OpenAI Unified Analysis 요청 시작 (Model: {self.model})")
+            logger.info(f"📝 요청 메시지: {len(messages)} 개, 질문: {question[:100]}...")
+            if image is not None:
+                logger.info(f"🖼️ 이미지 포함: 처리됨")
             
             # API 호출
             response = self.client.chat.completions.create(
@@ -175,6 +178,8 @@ class UnifiedAnalysisProcessor:
                 max_tokens=self.max_tokens,
                 temperature=self.temperature
             )
+            
+            logger.info(f"📥 OpenAI 응답 수신 완료")
             
             processing_time = time.time() - start_time
             
@@ -192,12 +197,22 @@ class UnifiedAnalysisProcessor:
                     }
                     cost = self._calculate_cost(token_usage)
                 
+                # OpenAI 응답 내용 로깅
+                logger.info(f"📋 OpenAI 응답 내용 (처음 200자): {content[:200]}...")
+                
                 # 분석 결과 파싱
                 result = self._parse_analysis_result(content, processing_time, token_usage, cost)
                 
                 logger.info(f"✅ OpenAI Unified Analysis 완료 - "
                           f"Tokens: {token_usage['total_tokens'] if token_usage else 0}, "
                           f"Cost: ${cost:.4f}, Time: {processing_time:.2f}s")
+                
+                # 파싱된 결과 요약 로깅
+                logger.info(f"🔍 분석 결과 요약: "
+                          f"텍스트={len(result.extracted_text or '')}, "
+                          f"수식={len(result.formulas or [])}, "
+                          f"개념={len(result.key_concepts or [])}, "
+                          f"의도={'있음' if result.question_intent else '없음'}")
                 
                 return result
             else:
@@ -210,6 +225,8 @@ class UnifiedAnalysisProcessor:
         except Exception as e:
             processing_time = time.time() - start_time
             logger.error(f"❌ OpenAI Unified Analysis 실패: {e}")
+            logger.error(f"❌ 오류 상세: {type(e).__name__}: {str(e)}")
+            logger.error(f"❌ 호출 횟수: {self._call_count}/{self._max_calls_per_query}")
             return AnalysisResult(
                 success=False,
                 error_message=str(e),

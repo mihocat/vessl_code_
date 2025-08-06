@@ -364,21 +364,32 @@ class RAGSystem:
         start_time = time.time()
         k = k or self.rag_config.rerank_k
         
+        logger.info(f"🔍 RAG 검색 시작: '{query[:100]}...', 요청 {k}개")
+        
         # 벡터 검색
         results = self.vector_store.search(query, self.rag_config.search_k)
+        logger.info(f"📊 1차 벡터 검색: {len(results)}개 결과")
         
         # 재정렬
         final_results = self.ranker.rerank(query, results, k)
+        logger.info(f"⚖️ 재정렬 완료: {len(final_results)}개 채택")
         
         # 최고 점수 계산
         max_score = max([r.score for r in final_results]) if final_results else 0.0
         
+        # 상위 3개 결과 로깅
+        for i, result in enumerate(final_results[:3]):
+            logger.info(f"📄 TOP{i+1} (Score: {result.score:.3f}): {result.question[:80]}...")
+            if result.answer:
+                logger.info(f"   답변: {result.answer[:100]}...")
+        
         # 통계 업데이트
         self._update_stats(max_score, time.time() - start_time)
         
+        search_time = time.time() - start_time
         logger.info(
-            f"Search completed: {len(final_results)} results, "
-            f"max score: {max_score:.3f}, time: {time.time() - start_time:.2f}s"
+            f"✅ RAG 검색 완료: {len(final_results)}개 결과, "
+            f"최고점수: {max_score:.3f}, 시간: {search_time:.2f}s"
         )
         
         return final_results, max_score
@@ -387,16 +398,23 @@ class RAGSystem:
         """통계 업데이트"""
         self.stats["total_queries"] += 1
         
+        # 신뢰도 분류 및 로깅
         if max_score >= self.rag_config.high_confidence_threshold:
             self.stats["high_confidence_hits"] += 1
+            confidence_level = "🔥 고신뢰도"
         elif max_score >= self.rag_config.medium_confidence_threshold:
             self.stats["medium_confidence_hits"] += 1
+            confidence_level = "🟡 중신뢰도"
         else:
             self.stats["low_confidence_hits"] += 1
+            confidence_level = "🔴 저신뢰도"
+            
+        logger.info(f"📊 RAG 검색 품질: {confidence_level} (Score: {max_score:.3f})")
         
         # 평균 응답 시간 계산
         n = self.stats["total_queries"]
         prev_avg = self.stats["avg_response_time"]
+        logger.debug(f"📈 RAG 통계 업데이트: 총 {n}개 질의, 응답시간: {response_time:.2f}s")
         self.stats["avg_response_time"] = (prev_avg * (n - 1) + response_time) / n
     
     def get_stats(self) -> Dict:

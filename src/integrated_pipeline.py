@@ -143,10 +143,10 @@ class IntegratedPipeline:
                 if analysis_result.extracted_text:
                     search_query += " " + analysis_result.extracted_text[:200]
                 
-                rag_results = self.rag_system.search(search_query)
+                rag_results, max_score = self.rag_system.search(search_query)
                 processing_times['rag_search'] = time.time() - step2_start
                 
-                logger.info(f"📚 RAG 검색 완료 - {len(rag_results)}개 문서 발견")
+                logger.info(f"📚 RAG 검색 완료 - {len(rag_results)}개 문서 발견, 최고점수: {max_score:.3f}")
             else:
                 logger.warning("⚠️ RAG 시스템 비활성화 또는 초기화 실패")
             
