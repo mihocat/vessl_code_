@@ -5,6 +5,7 @@
 OpenAI 분석 (1회) → RAG 검색 → 파인튜닝 LLM → 최종 답변
 """
 
+import os
 import logging
 import time
 from typing import Dict, List, Optional, Any, Tuple, Union
@@ -53,20 +54,29 @@ class IntegratedPipeline:
         }
         self.openai_processor = UnifiedAnalysisProcessor(openai_config)
         
-        # 2. RAG 시스템 초기화 (파인튜닝 LLM 클라이언트 필요)
-        try:
-            # vLLM 기반 파인튜닝 모델 사용
-            self.llm_client = LLMClient(config.llm)
-            self.rag_system = RAGSystem(
-                rag_config=config.rag,
-                dataset_config=config.dataset,
-                llm_client=self.llm_client
-            )
-            logger.info("✅ RAG 시스템 초기화 완료")
-        except Exception as e:
-            logger.error(f"❌ RAG/LLM 시스템 초기화 실패: {e}")
+        # 2. RAG 시스템 및 LLM 클라이언트 초기화 (SKIP_VLLM 확인)
+        skip_vllm = os.getenv("SKIP_VLLM", "false").lower() == "true"
+        logger.info(f"🔧 SKIP_VLLM 환경변수: {skip_vllm}")
+        
+        if skip_vllm:
+            logger.info("⚠️ SKIP_VLLM=true - 파인튜닝 LLM 및 RAG 시스템 비활성화")
             self.llm_client = None
             self.rag_system = None
+        else:
+            try:
+                # vLLM 기반 파인튜닝 모델 사용
+                logger.info("🔧 vLLM 기반 파인튜닝 LLM 클라이언트 초기화 중...")
+                self.llm_client = LLMClient(config.llm)
+                self.rag_system = RAGSystem(
+                    rag_config=config.rag,
+                    dataset_config=config.dataset,
+                    llm_client=self.llm_client
+                )
+                logger.info("✅ RAG 시스템 및 LLM 클라이언트 초기화 완료")
+            except Exception as e:
+                logger.error(f"❌ RAG/LLM 시스템 초기화 실패: {e}")
+                self.llm_client = None
+                self.rag_system = None
         
         # 처리 통계
         self.processing_stats = {
@@ -182,9 +192,33 @@ class IntegratedPipeline:
                 logger.info("🤖 최종 답변 생성 완료")
                 
             else:
-                logger.error("❌ 파인튜닝 LLM 클라이언트 사용 불가")
-                final_answer = """시스템 설정 오류: 파인튜닝된 LLM 클라이언트가 초기화되지 않았습니다.
-시스템 관리자에게 문의해 주세요."""
+                logger.info("⚠️ 파인튜닝 LLM 단계 건너뛰기 - OpenAI 분석 결과 기반 답변 제공")
+                
+                # OpenAI 분석 결과를 활용한 답변 구성
+                if analysis_result and analysis_result.extracted_text:
+                    # OpenAI 분석에서 추출된 텍스트를 기반으로 답변 구성
+                    final_answer = f"""**OpenAI GPT-4.1 분석 결과:**
+
+{analysis_result.extracted_text}
+
+**참고사항:**
+- 현재 파인튜닝된 전기공학 전문 모델은 비활성화 상태입니다
+- 위 답변은 OpenAI GPT-4.1의 분석 결과입니다
+- 더 전문적인 답변이 필요하시면 시스템 관리자에게 문의해 주세요"""
+                else:
+                    # 분석 결과가 없는 경우 기본 메시지
+                    final_answer = f"""**OpenAI 분석 결과 요약:**
+
+질문: {question[:100]}{'...' if len(question) > 100 else ''}
+
+현재 파인튜닝된 전기공학 전문 모델이 비활성화되어 있어 상세한 전문 분석을 제공할 수 없습니다.
+
+**처리 완료된 단계:**
+✅ OpenAI 분석: 완료
+✅ RAG 검색: {len(rag_results)}개 문서
+⚠️ 파인튜닝 LLM: 비활성화됨
+
+보다 전문적인 전기공학 답변이 필요하시면 시스템 관리자에게 문의해 주세요."""
             
             # ========== 결과 정리 ==========
             total_time = time.time() - start_time
