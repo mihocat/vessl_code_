@@ -275,7 +275,7 @@ class ToolAgent:
     
     async def _use_formula_solver(self, query: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """공식 해결기 사용"""
-        # 기본적인 전기공학 공식들
+        # 기본적인 과학 공식들
         formulas = {
             'ohms_law': {
                 'V=IR': lambda I, R: I * R,

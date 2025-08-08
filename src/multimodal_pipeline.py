@@ -158,10 +158,10 @@ class MultimodalPipeline:
             # 향상된 LLM 시스템
             try:
                 kollama_config = ModelConfig(
-                    name="KoLlama-3.2-Electrical",
+                    name="LLM-Fine-Tuned",
                     model_type=ModelType.FINE_TUNED,
                     base_url="http://localhost:8000",
-                    model_path="kollama-3.2-electrical",
+                    model_path="llm-fine-tuned",
                     domain_specialization=[ModelDomain.ELECTRICAL, ModelDomain.GENERAL_SCIENCE]
                 )
                 self.llm_system = EnhancedLLMSystem(kollama_config)

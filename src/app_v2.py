@@ -408,7 +408,7 @@ def create_enhanced_gradio_app(config: Optional[Config] = None) -> gr.Blocks:
                 examples = gr.Examples(
                     examples=[
                         ["다산에듀는 너의 친구입니까?"],
-                        ["회로도에 대해서 알려줘."],
+                        ["데이터 처리에 대해서 알려줘."],
                         ["객체지향 프로그래밍의 특징은?"],
                         ["이 수식을 풀어줘: ∫x²dx"],
                         ["피타고라스 정리를 증명해줘."]

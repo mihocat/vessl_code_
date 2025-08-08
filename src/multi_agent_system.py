@@ -769,11 +769,11 @@ if __name__ == "__main__":
         
         # 의도 분석
         analyzer = IntentAnalyzer()
-        intent = analyzer.analyze_intent("전력 계산 방법을 단계별로 설명해주세요", False)
+        intent = analyzer.analyze_intent("데이터 처리 방법을 단계별로 설명해주세요", False)
         
         # 쿼리 처리
         result = await mas.process_query(
-            "전력 계산 방법을 단계별로 설명해주세요",
+            "데이터 처리 방법을 단계별로 설명해주세요",
             intent
         )
         

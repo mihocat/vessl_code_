@@ -611,7 +611,7 @@ class QueryIntentAnalyzer:
         
         # 도메인별 특화 프롬프트
         domain_prompts = {
-            'electrical': "전기공학 전문 지식을 바탕으로 정확한 분석을 제공해주세요.",
+            'electrical': "전문 지식을 바탕으로 정확한 분석을 제공해주세요.",
             'mathematics': "수학적 정확성을 보장하며 LaTeX 형식으로 표현해주세요.",
             'physics': "물리학 원리를 명확히 설명하고 실제 예시를 들어주세요.",
             'chemistry': "화학 반응과 원리를 체계적으로 분석해주세요."

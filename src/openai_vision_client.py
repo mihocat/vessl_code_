@@ -329,7 +329,7 @@ class OpenAIVisionClient:
         # 도메인별 간결한 힌트
         if 'domain' in context and context['domain']:
             domain_focus = {
-                'electrical': "회로도, 전압/전류 값, 전기 공식 중심으로",
+                'technology': "다이어그램, 데이터 흐름, 시스템 구조 중심으로",
                 'mathematics': "수식, 그래프, 계산 과정 중심으로", 
                 'physics': "물리 공식, 수치, 단위 중심으로",
                 'chemistry': "화학식, 분자구조, 반응식 중심으로"

@@ -66,7 +66,7 @@ class IntentAnalyzer:
         # 수학/공식 패턴
         self.math_patterns = [
             r'수식|공식|계산|적분|미분|방정식|함수',
-            r'라플라스|푸리에|변환',
+            r'변환|알고리즘|처리',
             r'벡터|행렬|선형대수',
             r'확률|통계',
             r'[0-9]+\s*[+\-*/=]\s*[0-9]+',
@@ -371,10 +371,10 @@ class IntentAnalyzer:
         """도메인 감지"""
         domains = []
         
-        # 전기공학 도메인
-        electrical_terms = ['전력', '전압', '전류', '역률', '변압기', '모터']
-        if any(term in query for term in electrical_terms):
-            domains.append("electrical_engineering")
+        # 기술 도메인
+        tech_terms = ['데이터', '알고리즘', '프로그래밍', '시스템', '네트워크', '보안']
+        if any(term in query for term in tech_terms):
+            domains.append("technology")
         
         # 수학 도메인
         math_terms = ['적분', '미분', '행렬', '벡터', '함수', '방정식']
@@ -402,8 +402,8 @@ if __name__ == "__main__":
     
     test_queries = [
         ("이 이미지의 수식을 설명해주세요", True),
-        ("라플라스 변환의 정의와 성질을 설명해주세요", False),
-        ("전력 계산 방법을 단계별로 알려주세요", False),
+        ("머신러닝의 기본 개념을 설명해주세요", False),
+        ("데이터 처리 방법을 단계별로 알려주세요", False),
         ("A와 B의 차이점을 비교 분석해주세요", False),
     ]
     

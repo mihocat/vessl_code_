@@ -148,7 +148,7 @@ class SimpleImageAnalyzer:
             # 텍스트 추출
             ocr_text = self.extract_text(image)
             
-            # 전기공학 관련 분석
+            # 분야 관련 분석
             electrical_info = self._analyze_electrical_content(caption, ocr_text)
             
             return {
@@ -204,10 +204,10 @@ class SimpleImageAnalyzer:
         return result.strip() if result != caption.lower() else f"이미지: {caption}"
     
     def _analyze_electrical_content(self, caption: str, ocr_text: str) -> Dict[str, Any]:
-        """전기공학 관련 내용 분석"""
+        """ 내용 분석"""
         combined_text = f"{caption} {ocr_text}".lower()
         
-        # 전기공학 키워드
+        # 키워드
         electrical_keywords = {
             "circuit": ["회로", "circuit", "저항", "resistance"],
             "power": ["전력", "power", "kw", "kvar", "kva"],
@@ -275,7 +275,7 @@ class SimpleMultimodalRAGService:
                 
                 if analysis.get("electrical_info", {}).get("is_electrical"):
                     topics = ", ".join(analysis["electrical_info"]["topics"])
-                    combined_parts.append(f"\n[전기공학 관련 주제: {topics}]")
+                    combined_parts.append(f"\n[분야 관련 주제: {topics}]")
                 
                 context["combined_query"] = "\n".join(combined_parts)
                 

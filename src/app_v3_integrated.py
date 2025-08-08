@@ -296,8 +296,8 @@ def create_gradio_interface(service: IntegratedChatService) -> gr.Interface:
         
         **새로운 아키텍처:**
         1. 🔍 **OpenAI GPT-5** - 이미지+텍스트 분석 (1회 호출)
-        2. 📚 **RAG 검색** - ChromaDB 전문 문서 활용
-        3. 🤖 **파인튜닝 LLM** - KoLlama 한국어 전문 모델
+        2. 📚 **RAG 검색** - ChromaDB 문서 활용
+        3. 🤖 **파인튜닝 LLM** - 한국어 LLM 모델
         
         **특징:**
         - OpenAI API는 분석 전용 (최종 답변 금지)
@@ -345,10 +345,10 @@ def create_gradio_interface(service: IntegratedChatService) -> gr.Interface:
                 # 예제 질문들
                 gr.Markdown("### 💡 예제 질문")
                 example_questions = [
-                    "Pr'을 구할 때 왜 Pr에서 Qc를 빼는 건가요?",
-                    "미분할 때 d/da를 적용하면 왜 s는 1이고 a는 0이 되는 건가요?",
-                    "두 점 사이의 거리 단위벡터를 구하는 방식을 알려주세요",
-                    "라플라스 변환의 정의와 성질을 설명해주세요"
+                    "머신러닝의 기본 개념을 설명해주세요",
+                    "데이터 처리 방법을 단계별로 알려주세요",
+                    "두 점 사이의 거리를 구하는 방식을 알려주세요",
+                    "최신 AI 기술 트렌드를 설명해주세요"
                 ]
                 
                 for i, example in enumerate(example_questions, 1):

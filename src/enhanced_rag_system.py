@@ -281,12 +281,12 @@ class EnhancedRAGSystem:
     def _load_synonym_dict(self) -> Dict[str, List[str]]:
         """동의어 사전 로드"""
         return {
-            # 전기공학
-            '전압': ['볼트', 'voltage', 'V', '전위차'],
-            '전류': ['암페어', 'current', 'A', '전류량'],
-            '저항': ['옴', 'resistance', 'R', '저항값'],
-            '전력': ['와트', 'power', 'W', '전력량'],
-            '회로': ['circuit', '전기회로', '회로도'],
+            # 기술
+            '데이터': ['data', 'information', '정보', '자료'],
+            '알고리즘': ['algorithm', 'algo', '수식', '방법'],
+            '프로그램': ['program', 'software', '소프트웨어', '코드'],
+            '시스템': ['system', '체계', '환경'],
+            '네트워크': ['network', '연결망', '통신망'],
             
             # 수학
             '함수': ['function', 'f(x)', '함수식'],

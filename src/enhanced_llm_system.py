@@ -3,7 +3,7 @@
 """
 향상된 파인튜닝 LLM 통합 시스템
 Enhanced Fine-tuned LLM Integration System
-KoLlama 3.2 한국어 전기공학 전문 모델 + 범용 LLM 지원
+LLM 모델 + 범용 AI 지원
 """
 
 import os
@@ -126,20 +126,20 @@ class BaseLLMClient(ABC):
             self.stats['failed_requests'] += 1
 
 class KoLlamaClient(BaseLLMClient):
-    """KoLlama 3.2 파인튜닝 모델 클라이언트"""
+    """LLM 파인튜닝 모델 클라이언트"""
     
     def __init__(self, config: ModelConfig):
         super().__init__(config)
         self.session = requests.Session()
         
-        # KoLlama 특화 설정
-        self.electrical_engineering_context = """
-당신은 한국어 전기공학 전문 AI입니다. 다음 특성을 가지고 있습니다:
-1. 전기공학 전문 지식을 바탕으로 정확한 답변 제공
+        # LLM 특화 설정
+        self.ai_context = """
+당신은 한국어 AI 전문가입니다. 다음 특성을 가지고 있습니다:
+1. 전문 지식을 바탕으로 정확한 답변 제공
 2. 한국어로 자연스럽고 명확한 설명
 3. 수식과 계산 과정의 단계별 설명
 4. 실무적이고 실용적인 접근
-5. 안전 규정과 표준을 고려한 답변
+5. 최신 기술과 표준을 고려한 답변
 """
         
         # 도메인별 프롬프트 템플릿
@@ -150,7 +150,7 @@ class KoLlamaClient(BaseLLMClient):
             ModelDomain.GENERAL: self._get_general_template()
         }
         
-        logger.info(f"KoLlama client initialized: {config.name}")
+        logger.info(f"LLM client initialized: {config.name}")
     
     def generate(self, prompt: str, context: str = "", domain: ModelDomain = ModelDomain.ELECTRICAL, **kwargs) -> ModelResponse:
         """텍스트 생성"""
@@ -205,23 +205,23 @@ class KoLlamaClient(BaseLLMClient):
         return full_prompt
     
     def _get_electrical_template(self) -> Dict[str, str]:
-        """전기공학 템플릿"""
+        """기술 템플릿"""
         return {
-            'with_context': """당신은 한국어 전기공학 전문 AI입니다.
+            'with_context': """당신은 한국어 AI 전문가입니다.
 
 === 참고자료 ===
 {context}
 ================
 
 위 참고자료를 바탕으로 다음 질문에 정확하고 자세하게 답변해주세요.
-전기공학 용어를 정확히 사용하고, 필요한 경우 계산 과정을 단계별로 설명해주세요.
+전문 용어를 정흉히 사용하고, 필요한 경우 계산 과정을 단계별로 설명해주세요.
 
 질문: {question}
 
 답변:""",
             
-            'without_context': """당신은 한국어 전기공학 전문 AI입니다.
-전기공학 지식을 바탕으로 정확하고 실용적인 답변을 제공해주세요.
+            'without_context': """당신은 한국어 AI 전문가입니다.
+전문 지식을 바탕으로 정확하고 실용적인 답변을 제공해주세요.
 
 질문: {question}
 
@@ -595,7 +595,7 @@ class EnhancedLLMSystem:
         시스템 초기화
         
         Args:
-            primary_config: 기본 모델 설정 (KoLlama)
+            primary_config: 기본 모델 설정 (LLM)
             fallback_configs: 대안 모델 설정들
         """
         self.primary_client = self._create_client(primary_config)
@@ -703,7 +703,7 @@ class EnhancedLLMSystem:
     
     def get_best_model_for_domain(self, domain: ModelDomain) -> Optional[BaseLLMClient]:
         """도메인별 최적 모델 선택"""
-        # KoLlama가 전기공학에 특화되어 있으므로
+        # LLM이 기술 분야에 특화되어 있으므로
         if domain == ModelDomain.ELECTRICAL:
             return self.primary_client
         
@@ -774,10 +774,10 @@ class EnhancedLLMSystem:
         }
 
 # 편의 함수들
-def create_kollama_config(base_url: str = "http://localhost:8000", model_path: str = "kollama-3.2-electrical") -> ModelConfig:
-    """KoLlama 설정 생성"""
+def create_kollama_config(base_url: str = "http://localhost:8000", model_path: str = "llm-fine-tuned") -> ModelConfig:
+    """LLM 설정 생성"""
     return ModelConfig(
-        name="KoLlama-3.2-Electrical",
+        name="LLM-Fine-Tuned",
         model_type=ModelType.FINE_TUNED,
         base_url=base_url,
         model_path=model_path,
@@ -791,6 +791,6 @@ def create_enhanced_llm_system(kollama_url: str = "http://localhost:8000") -> En
     primary_config = create_kollama_config(kollama_url)
     return EnhancedLLMSystem(primary_config)
 
-def test_llm_system(system: EnhancedLLMSystem, test_query: str = "전압과 전류의 관계를 설명해주세요.") -> ModelResponse:
+def test_llm_system(system: EnhancedLLMSystem, test_query: str = "데이터 처리의 기본 개념을 설명해주세요.") -> ModelResponse:
     """LLM 시스템 테스트"""
     return system.generate(test_query, domain=ModelDomain.ELECTRICAL)

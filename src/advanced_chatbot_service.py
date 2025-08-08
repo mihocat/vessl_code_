@@ -755,7 +755,7 @@ if __name__ == "__main__":
     # 비동기 테스트
     async def test_advanced_service():
         result = await service.process_query_advanced(
-            "전력 계산 방법을 단계별로 설명해주세요",
+            "데이터 처리 방법을 단계별로 설명해주세요",
             session_id="test_session_1",
             mode=ConversationMode.TUTORIAL
         )

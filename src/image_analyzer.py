@@ -230,7 +230,7 @@ class Florence2ImageAnalyzer:
                 # 원본 텍스트 백업
                 original_text = text
                 
-                # 전기공학 관련 유효한 패턴 추출
+                # 기술 관련 유효한 패턴 추출
                 # 숫자, 단위, 수식, 변수 등
                 valid_patterns = [
                     # 숫자와 단위 (더 정확한 패턴)

@@ -257,7 +257,7 @@ class SystemTestSuite:
                     'test_case': 'initialization',
                     'success': False,
                     'error': str(e),
-                    'note': 'KoLlama 서버가 실행 중이지 않을 수 있음'
+                    'note': 'LLM 서버가 실행 중이지 않을 수 있음'
                 })
                 
         except Exception as e:
@@ -280,7 +280,7 @@ class SystemTestSuite:
                 enable_openai_vision=True,
                 enable_ncp_ocr=True,
                 enable_rag=True,
-                enable_fine_tuned_llm=False,  # KoLlama 서버가 없을 수 있으므로
+                enable_fine_tuned_llm=False,  # LLM 서버가 없을 수 있으므로
                 enable_reasoning=True,
                 enable_memory=True,
                 log_detailed_processing=True
@@ -487,7 +487,7 @@ class SystemTestSuite:
             recommendations.append("NCP OCR API 키를 확인하고 서비스 설정을 검토하세요.")
         
         if 'EnhancedLLMSystem' in failed_components:
-            recommendations.append("KoLlama 서버가 실행 중인지 확인하거나 대체 LLM 서비스를 설정하세요.")
+            recommendations.append("LLM 서버가 실행 중인지 확인하거나 대체 LLM 서비스를 설정하세요.")
         
         if 'EnhancedRAGSystem' in failed_components:
             recommendations.append("문서 데이터베이스와 임베딩 모델 설정을 확인하세요.")
