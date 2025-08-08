@@ -213,7 +213,7 @@ class IntegratedPipeline:
                 processing_times['llm_generation'] = time.time() - llm_step_start
                 
                 # LLM 연결 실패 시 에러 메시지 (파이프라인 경로별로 다른 메시지)
-                if "응답 생성 중 오류가 발생했습니다" in final_answer or len(final_answer) < 50:
+                if "응답 생성 중 오류가 발생했습니다" in final_answer:
                     logger.error("❌ LLM 서버 연결 실패 - 파인튜닝 모델 사용 불가")
                     
                     if image is not None:
@@ -446,9 +446,14 @@ class IntegratedPipeline:
                     question="안녕하세요", 
                     max_tokens=10
                 )
-                status['llm_client'] = True
+                # 실제 응답이 있고 오류 메시지가 아닌지 확인
+                if response and "응답 생성 중 오류가 발생했습니다" not in response:
+                    status['llm_client'] = True
+                else:
+                    status['llm_client'] = False
             except Exception as e:
                 logger.error(f"LLM client health check failed: {e}")
+                status['llm_client'] = False
         
         return status
     
