@@ -230,7 +230,7 @@ class IntegratedPipeline:
 
 **처리 완료된 단계:**
 - RAG 문서 검색: {len(rag_results)}개 결과  
-- 파인튜닝 LLM: 연결 실패"""
+- 파인튜닝 LLM: 연결 실패
 
 시스템 관리자에게 문의하시거나 잠시 후 다시 시도해 주세요."""
                 
@@ -429,5 +429,5 @@ class IntegratedPipeline:
 
 
 def create_integrated_pipeline(config: Config) -> IntegratedPipeline:
-    """통합 파이프라인 생성 편의 함수"""
+    """Create integrated pipeline convenience function"""
     return IntegratedPipeline(config)
