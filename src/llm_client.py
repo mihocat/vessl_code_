@@ -31,10 +31,18 @@ class LLMClient:
         
     def _setup_urls(self):
         """API 엔드포인트 설정"""
-        self.health_check_url = f"{self.config.base_url}/health"
+        # base_url이 이미 /v1을 포함하는지 확인
+        base_url = self.config.base_url.rstrip('/')
+        
+        self.health_check_url = f"{base_url.replace('/v1', '')}/health"
+        
         # vLLM은 OpenAI 호환 API 사용 (chat/completions)
-        self.completions_url = f"{self.config.base_url}/v1/chat/completions"
-        self.models_url = f"{self.config.base_url}/v1/models"
+        if base_url.endswith('/v1'):
+            self.completions_url = f"{base_url}/chat/completions"
+            self.models_url = f"{base_url}/models"
+        else:
+            self.completions_url = f"{base_url}/v1/chat/completions"
+            self.models_url = f"{base_url}/v1/models"
         
     def check_health(self) -> bool:
         """서버 상태 확인"""
