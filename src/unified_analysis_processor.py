@@ -56,8 +56,10 @@ class UnifiedAnalysisProcessor:
         
         self.client = OpenAI(api_key=self.api_key)
         self.model = self.config.get('unified_model', 'gpt-5')
-        self.max_tokens = self.config.get('max_tokens', 500)  # 더 상세한 분석을 위해 증가
-        self.temperature = self.config.get('temperature', 0.3)  # 약간 더 창의적인 분석
+        self.max_tokens = self.config.get('max_tokens', 400)  # output 토큰 제한
+        self.temperature = self.config.get('temperature', 0.2)  # 일관성 있는 분석
+        self.max_input_tokens = self.config.get('max_input_tokens', 1000)  # input 충분히 허용
+        self.target_output_tokens = self.config.get('target_output_tokens', 350)
         
         # 1회 호출 제한 추적
         self._call_count = 0
@@ -136,14 +138,27 @@ class UnifiedAnalysisProcessor:
             messages = [
                 {
                     "role": "system",
-                    "content": """질문을 토대로 이미지에서 읽은 한국어 텍스트 및 수식들을 파악하고 계산/분석하여, 질문과 관련된 핵심 개념을 한 문장으로 깔끔하게 알려주세요."""
+                    "content": """당신은 이미지와 텍스트를 분석하는 전문가입니다. 
+다음 형식으로 분석 결과를 제공하되, 각 섹션의 내용은 제한된 토큰 내에서 최대한 압축하여 핵심만 전달하세요:
+
+**추출된 텍스트:** [이미지에서 읽은 모든 텍스트를 200자 이내로 요약]
+**감지된 수식:** [LaTeX 형식의 주요 수식 3-5개]
+**핵심 개념:** [질문과 관련된 핵심 개념 5-8개]
+**질문 의도:** [사용자가 묻고자 하는 핵심을 한 문장으로]
+
+중요: 전체 응답을 500토큰 이내로 압축하여 작성하세요."""
                 },
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "text",
-                            "text": f"질문: {question}"
+                            "text": f"""질문: {question}
+
+주의사항:
+- 전체 응답은 반드시 {self.target_output_tokens}토큰 이내로 작성
+- 핵심 정보만 압축하여 전달
+- 불필요한 설명은 제외하고 요청된 형식만 준수"""
                         }
                     ]
                 }
@@ -212,10 +227,14 @@ class UnifiedAnalysisProcessor:
                 
                 # 파싱된 결과 요약 로깅
                 logger.info(f"🔍 분석 결과 요약: "
-                          f"텍스트={len(result.extracted_text or '')}, "
-                          f"수식={len(result.formulas or [])}, "
-                          f"개념={len(result.key_concepts or [])}, "
+                          f"텍스트={len(result.extracted_text or '')}자, "
+                          f"수식={len(result.formulas or [])}개, "
+                          f"개념={len(result.key_concepts or [])}개, "
                           f"의도={'있음' if result.question_intent else '없음'}")
+                
+                # 토큰 효율성 체크
+                if token_usage and token_usage.get('completion_tokens', 0) > self.target_output_tokens:
+                    logger.warning(f"⚠️ Output 토큰 초과: {token_usage['completion_tokens']} > {self.target_output_tokens}")
                 
                 return result
             else:
@@ -317,11 +336,19 @@ class UnifiedAnalysisProcessor:
             )
     
     def _calculate_cost(self, token_usage: Dict[str, int]) -> float:
-        """비용 계산 (GPT-4.1 기준)"""
-        # gpt-4.1 가격: $2.0/1M input tokens, $8.0/1M output tokens
-        input_cost = token_usage.get('prompt_tokens', 0) * 2.0 / 1_000_000
-        output_cost = token_usage.get('completion_tokens', 0) * 8.0 / 1_000_000
-        return input_cost + output_cost
+        """비용 계산 (GPT-5 기준)"""
+        # GPT-5 예상 가격 (GPT-4보다 약간 높게 책정)
+        # input: $3.0/1M tokens, output: $12.0/1M tokens
+        input_cost = token_usage.get('prompt_tokens', 0) * 3.0 / 1_000_000
+        output_cost = token_usage.get('completion_tokens', 0) * 12.0 / 1_000_000
+        total_cost = input_cost + output_cost
+        
+        # 토큰 사용량 로깅
+        logger.info(f"💰 토큰 사용: Input={token_usage.get('prompt_tokens', 0)}, "
+                   f"Output={token_usage.get('completion_tokens', 0)}, "
+                   f"Cost=${total_cost:.4f}")
+        
+        return total_cost
     
     def get_call_statistics(self) -> Dict[str, Any]:
         """호출 통계 반환"""

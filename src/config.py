@@ -99,8 +99,11 @@ class OpenAIConfig:
     api_key: Optional[str] = None
     # GPT-5 통합 모델: 이미지+텍스트 분석 전용 (최종 답변 생성 금지)
     unified_model: str = "gpt-5"  # 이미지+텍스트 분석 전용
-    max_tokens: int = 500  # 더 상세한 분석을 위해 증가
-    temperature: float = 0.3  # 약간 더 창의적인 분석
+    max_tokens: int = 400  # output 토큰 적절히 제한 (현재 약 350 사용)
+    temperature: float = 0.2  # 일관성 있는 분석을 위해 조정
+    # 토큰 사용 가이드라인
+    max_input_tokens: int = 1000  # input은 충분히 허용
+    target_output_tokens: int = 350  # 목표 output 토큰
     # 사용 제한 설정
     use_for_analysis_only: bool = True  # 분석 전용, 답변 생성 금지
     use_for_final_response: bool = False  # 최종 답변 생성 금지
