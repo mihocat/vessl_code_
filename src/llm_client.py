@@ -94,7 +94,7 @@ class LLMClient:
             return self._get_error_message()
     
     def _build_prompt(self, prompt: str, context: str) -> str:
-        """프롬프트 구성"""
+        """프롬프트 구성 - 토큰 제한 고려"""
         # 전기공학 전문 AI로 명확히 설정
         system_role = """당신은 전기공학 전문 AI 어시스턴트입니다.
 다음 원칙을 따라 답변하세요:
@@ -103,8 +103,14 @@ class LLMClient:
 3. 전기공학 용어를 정확히 사용하세요
 4. 간결하고 명확하게 답변하세요"""
 
-        # 컨텍스트가 있는 경우와 없는 경우 구분
+        # 컨텍스트 길이 제한 (2048 토큰 모델 대응)
         if context and context.strip():
+            # 컨텍스트를 토큰 제한에 맞게 자르기
+            max_context_chars = 1500  # 약 500-600 토큰
+            if len(context) > max_context_chars:
+                context = context[:max_context_chars] + "..."
+                logger.info(f"컨텍스트 길이 제한: {len(context)}자로 축소")
+            
             # 컨텍스트가 있을 때는 참고자료 강조
             full_prompt = f"""{system_role}
 

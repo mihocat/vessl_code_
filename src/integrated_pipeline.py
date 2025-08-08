@@ -129,7 +129,7 @@ class IntegratedPipeline:
                 step1_start = time.time()
                 pipeline_steps.append("OpenAI_Analysis")
                 
-                logger.info("🔍 단계 1: OpenAI GPT-4.1 이미지+텍스트 통합 분석 시작")
+                logger.info("🔍 단계 1: OpenAI GPT-5 이미지+텍스트 통합 분석 시작")
                 analysis_result = self.openai_processor.analyze_image_and_text(question, image)
                 
                 if not analysis_result.success:
@@ -243,13 +243,13 @@ class IntegratedPipeline:
                 if image is not None:
                     # 이미지 포함 질의 - OpenAI 분석 결과 활용
                     if analysis_result and hasattr(analysis_result, 'extracted_text') and analysis_result.extracted_text:
-                        final_answer = f"""**OpenAI GPT-4.1 이미지 분석 결과:**
+                        final_answer = f"""**OpenAI GPT-5 이미지 분석 결과:**
 
 {analysis_result.extracted_text}
 
 **참고사항:**
 - 현재 파인튜닝된 전기공학 전문 모델은 비활성화 상태입니다
-- 위 답변은 OpenAI GPT-4.1 의 이미지 분석 결과입니다
+- 위 답변은 OpenAI GPT-5 의 이미지 분석 결과입니다
 - 더 전문적인 답변이 필요하시면 시스템 관리자에게 문의해 주세요"""
                     else:
                         final_answer = f"""**이미지 분석 결과:**
@@ -327,30 +327,56 @@ class IntegratedPipeline:
         rag_results: List[SearchResult], 
         question: str
     ) -> str:
-        """컨텍스트 구성"""
+        """컨텍스트 구성 - 토큰 제한 고려"""
         context_parts = []
+        max_total_length = 1500  # 전체 컨텍스트 최대 길이
+        current_length = 0
         
         # OpenAI 분석 결과 (이미지 포함 질의인 경우에만 존재)
         if analysis_result is not None:
             if hasattr(analysis_result, 'extracted_text') and analysis_result.extracted_text:
-                context_parts.append(f"이미지에서 추출된 텍스트:\n{analysis_result.extracted_text}")
+                text = f"이미지에서 추출된 텍스트:\n{analysis_result.extracted_text[:300]}"
+                context_parts.append(text)
+                current_length += len(text)
             
             if hasattr(analysis_result, 'formulas') and analysis_result.formulas:
-                context_parts.append(f"감지된 수식:\n" + "\n".join(analysis_result.formulas))
+                formulas = analysis_result.formulas[:3]  # 최대 3개 수식만
+                text = f"감지된 수식:\n" + "\n".join(formulas)
+                if current_length + len(text) < max_total_length:
+                    context_parts.append(text)
+                    current_length += len(text)
             
             if hasattr(analysis_result, 'key_concepts') and analysis_result.key_concepts:
-                context_parts.append(f"핵심 개념:\n" + ", ".join(analysis_result.key_concepts))
+                concepts = analysis_result.key_concepts[:5]  # 최대 5개 개념만
+                text = f"핵심 개념:\n" + ", ".join(concepts)
+                if current_length + len(text) < max_total_length:
+                    context_parts.append(text)
+                    current_length += len(text)
         
         # RAG 검색 결과
         if rag_results:
             rag_context = []
-            for i, result in enumerate(rag_results[:5], 1):  # 상위 5개만
+            remaining_length = max_total_length - current_length
+            per_result_length = min(300, remaining_length // min(3, len(rag_results)))
+            
+            for i, result in enumerate(rag_results[:3], 1):  # 상위 3개만
                 # SearchResult 클래스의 올바른 속성 사용: answer (content가 아님)
-                rag_context.append(f"참고자료 {i}: {result.answer[:500]}...")
+                truncated_answer = result.answer[:per_result_length]
+                if len(result.answer) > per_result_length:
+                    truncated_answer += "..."
+                rag_context.append(f"참고자료 {i}: {truncated_answer}")
+                
             if rag_context:
                 context_parts.append("관련 전문 자료:\n" + "\n".join(rag_context))
         
-        return "\n\n".join(context_parts)
+        final_context = "\n\n".join(context_parts)
+        
+        # 최종 길이 확인
+        if len(final_context) > max_total_length:
+            final_context = final_context[:max_total_length] + "..."
+            logger.warning(f"컨텍스트가 {max_total_length}자로 제한됨")
+        
+        return final_context
     
     def _build_prompt(self, context: str, question: str, analysis_result) -> str:
         """프롬프트 구성"""

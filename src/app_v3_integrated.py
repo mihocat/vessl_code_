@@ -295,7 +295,7 @@ def create_gradio_interface(service: IntegratedChatService) -> gr.Interface:
         # 🚀 통합 AI 파이프라인 채팅봇
         
         **새로운 아키텍처:**
-        1. 🔍 **OpenAI GPT-4.1** - 이미지+텍스트 분석 (1회 호출)
+        1. 🔍 **OpenAI GPT-5** - 이미지+텍스트 분석 (1회 호출)
         2. 📚 **RAG 검색** - ChromaDB 전문 문서 활용
         3. 🤖 **파인튜닝 LLM** - KoLlama 한국어 전문 모델
         

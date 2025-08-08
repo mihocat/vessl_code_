@@ -97,8 +97,8 @@ class WebSearchConfig:
 class OpenAIConfig:
     """OpenAI API 설정 - 이미지+텍스트 분석 전용"""
     api_key: Optional[str] = None
-    # GPT-4.1 통합 모델: 이미지+텍스트 분석 전용 (최종 답변 생성 금지)
-    unified_model: str = "gpt-4.1"  # 이미지+텍스트 분석 전용
+    # GPT-5 통합 모델: 이미지+텍스트 분석 전용 (최종 답변 생성 금지)
+    unified_model: str = "gpt-5"  # 이미지+텍스트 분석 전용
     max_tokens: int = 300  # 분석 결과만 생성하도록 제한
     temperature: float = 0.1
     # 사용 제한 설정
@@ -208,7 +208,9 @@ class Config:
     def _load_from_env(self):
         """환경 변수에서 설정 로드"""
         # LLM 설정
-        if os.getenv("LLM_BASE_URL"):
+        if os.getenv("VLLM_API_URL"):
+            self.llm.base_url = os.getenv("VLLM_API_URL")
+        elif os.getenv("LLM_BASE_URL"):
             self.llm.base_url = os.getenv("LLM_BASE_URL")
         if os.getenv("LLM_MODEL_NAME"):
             self.llm.model_name = os.getenv("LLM_MODEL_NAME")
