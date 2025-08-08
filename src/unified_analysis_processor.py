@@ -178,13 +178,20 @@ class UnifiedAnalysisProcessor:
             if image is not None:
                 logger.info(f"🖼️ 이미지 포함: 처리됨")
             
-            # API 호출
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature
-            )
+            # API 호출 - GPT-5는 max_completion_tokens 사용
+            api_params = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": self.temperature
+            }
+            
+            # GPT-5 모델인 경우 max_completion_tokens 사용
+            if "gpt-5" in self.model.lower():
+                api_params["max_completion_tokens"] = self.max_tokens
+            else:
+                api_params["max_tokens"] = self.max_tokens
+            
+            response = self.client.chat.completions.create(**api_params)
             
             logger.info(f"📥 OpenAI 응답 수신 완료")
             
