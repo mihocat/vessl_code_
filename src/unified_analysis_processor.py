@@ -23,6 +23,8 @@ except ImportError as e:
     raise e
 
 logger = logging.getLogger(__name__)
+# 디버그 모드 활성화
+logger.setLevel(logging.DEBUG)
 
 @dataclass
 class AnalysisResult:
@@ -216,7 +218,12 @@ class UnifiedAnalysisProcessor:
                     cost = self._calculate_cost(token_usage)
                 
                 # OpenAI 응답 내용 로깅
-                logger.info(f"📋 OpenAI 응답 내용 (처음 500자): {content[:500]}...")
+                if content:
+                    logger.info(f"📋 OpenAI 응답 내용 (처음 500자): {content[:500] if len(content) > 500 else content}")
+                    if len(content) > 500:
+                        logger.info(f"📋 OpenAI 응답 내용 (전체 {len(content)}자)")
+                else:
+                    logger.warning("⚠️ OpenAI 응답이 비어있습니다!")
                 logger.debug(f"📄 OpenAI 전체 응답: {content}")
                 
                 # 분석 결과 파싱
@@ -287,6 +294,7 @@ class UnifiedAnalysisProcessor:
         try:
             # 파싱 전 로깅
             logger.debug(f"파싱 시작 - 컨텐츠 길이: {len(content)}자")
+            logger.debug(f"파싱 대상 컨텐츠 처음 200자: {content[:200]}...")
             
             # 기본값
             extracted_text = ""
@@ -299,42 +307,64 @@ class UnifiedAnalysisProcessor:
             current_section = None
             current_content = []
             
-            for line in lines:
+            logger.debug(f"총 {len(lines)}개 라인 파싱 시작")
+            
+            for i, line in enumerate(lines):
+                original_line = line
                 line = line.strip()
                 
                 # 섹션 헤더 감지 (더 유연하게)
-                if any(marker in line for marker in ["추출된 텍스트:", "추출된 텍스트：", "**추출된 텍스트**"]):
+                if any(marker in line for marker in ["추출된 텍스트:", "추출된 텍스트：", "**추출된 텍스트**", "추출된 텍스트"]):
+                    logger.debug(f"라인 {i}: '추출된 텍스트' 섹션 발견")
                     # 이전 섹션 저장
                     if current_section and current_content:
                         self._save_section(current_section, '\n'.join(current_content), 
                                          locals())
                     current_section = "text"
                     current_content = []
-                elif any(marker in line for marker in ["감지된 수식:", "감지된 수식：", "**감지된 수식**"]):
+                    # 헤더와 같은 줄에 내용이 있는 경우 처리
+                    remaining = line.replace("**추출된 텍스트**", "").replace("추출된 텍스트:", "").replace("추출된 텍스트：", "").strip()
+                    if remaining:
+                        current_content.append(remaining)
+                elif any(marker in line for marker in ["감지된 수식:", "감지된 수식：", "**감지된 수식**", "감지된 수식"]):
+                    logger.debug(f"라인 {i}: '감지된 수식' 섹션 발견")
                     if current_section and current_content:
                         self._save_section(current_section, '\n'.join(current_content), 
                                          locals())
                     current_section = "formula"
                     current_content = []
-                elif any(marker in line for marker in ["핵심 개념:", "핵심 개념：", "**핵심 개념**"]):
+                    remaining = line.replace("**감지된 수식**", "").replace("감지된 수식:", "").replace("감지된 수식：", "").strip()
+                    if remaining:
+                        current_content.append(remaining)
+                elif any(marker in line for marker in ["핵심 개념:", "핵심 개념：", "**핵심 개념**", "핵심 개념"]):
+                    logger.debug(f"라인 {i}: '핵심 개념' 섹션 발견")
                     if current_section and current_content:
                         self._save_section(current_section, '\n'.join(current_content), 
                                          locals())
                     current_section = "concept"
                     current_content = []
-                elif any(marker in line for marker in ["질문 의도:", "질문 의도：", "**질문 의도**"]):
+                    remaining = line.replace("**핵심 개념**", "").replace("핵심 개념:", "").replace("핵심 개념：", "").strip()
+                    if remaining:
+                        current_content.append(remaining)
+                elif any(marker in line for marker in ["질문 의도:", "질문 의도：", "**질문 의도**", "질문 의도"]):
+                    logger.debug(f"라인 {i}: '질문 의도' 섹션 발견")
                     if current_section and current_content:
                         self._save_section(current_section, '\n'.join(current_content), 
                                          locals())
                     current_section = "intent"
                     current_content = []
+                    remaining = line.replace("**질문 의도**", "").replace("질문 의도:", "").replace("질문 의도：", "").strip()
+                    if remaining:
+                        current_content.append(remaining)
                 elif line and current_section:
-                    # 헤더가 아닌 내용 추가
-                    if not any(marker in line for marker in ["**", ":", "："]):
-                        current_content.append(line)
+                    # 현재 섹션에 내용 추가
+                    current_content.append(line)
+                elif line and not current_section:
+                    logger.debug(f"라인 {i}: 섹션 없이 내용 발견: {line[:50]}...")
             
             # 마지막 섹션 저장
             if current_section and current_content:
+                logger.debug(f"마지막 섹션 '{current_section}' 저장, 내용 {len(current_content)}줄")
                 self._save_section(current_section, '\n'.join(current_content), locals())
             
             # 파싱 결과 로깅
@@ -370,21 +400,28 @@ class UnifiedAnalysisProcessor:
     def _save_section(self, section_type: str, content: str, context: dict):
         """섹션 내용 저장 헬퍼 함수"""
         content = content.strip()
+        logger.debug(f"섹션 저장 - 타입: {section_type}, 내용 길이: {len(content)}자")
+        
         if not content:
+            logger.debug(f"섹션 {section_type}의 내용이 비어있음")
             return
             
         if section_type == "text":
             context['extracted_text'] = content
+            logger.debug(f"추출된 텍스트 저장: {content[:100]}...")
         elif section_type == "formula":
             context['formulas'] = [f.strip() for f in content.split('\n') if f.strip()]
+            logger.debug(f"수식 {len(context['formulas'])}개 저장")
         elif section_type == "concept":
             # 쉼표 또는 줄바꿈으로 구분
             if ',' in content:
                 context['key_concepts'] = [c.strip() for c in content.split(',') if c.strip()]
             else:
                 context['key_concepts'] = [c.strip() for c in content.split('\n') if c.strip()]
+            logger.debug(f"핵심 개념 {len(context['key_concepts'])}개 저장")
         elif section_type == "intent":
             context['question_intent'] = content
+            logger.debug(f"질문 의도 저장: {content[:100]}...")
     
     def _calculate_cost(self, token_usage: Dict[str, int]) -> float:
         """비용 계산 (GPT-5 기준)"""
