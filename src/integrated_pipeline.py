@@ -221,16 +221,16 @@ class IntegratedPipeline:
                         final_answer = f"""죄송합니다. 현재 파인튜닝된 모델 서버에 연결할 수 없습니다.
 
 **처리 완료된 단계:**
-✅ OpenAI 이미지 분석: 완료
-✅ RAG 문서 검색: {len(rag_results)}개 결과
-❌ 파인튜닝 LLM: 연결 실패"""
+- OpenAI 이미지 분석: 완료
+- RAG 문서 검색: {len(rag_results)}개 결과
+- 파인튜닝 LLM: 연결 실패"""
                     else:
                         # 텍스트 전용 질의 실패
                         final_answer = f"""죄송합니다. 현재 파인튜닝된 모델 서버에 연결할 수 없습니다.
 
 **처리 완료된 단계:**
-✅ RAG 문서 검색: {len(rag_results)}개 결과  
-❌ 파인튜닝 LLM: 연결 실패"""
+- RAG 문서 검색: {len(rag_results)}개 결과  
+- 파인튜닝 LLM: 연결 실패"""
 
 시스템 관리자에게 문의하시거나 잠시 후 다시 시도해 주세요."""
                 
@@ -259,9 +259,9 @@ class IntegratedPipeline:
 현재 파인튜닝된 전기공학 전문 모델이 비활성화되어 있어 상세한 전문 분석을 제공할 수 없습니다.
 
 **처리 완료된 단계:**
-✅ OpenAI 이미지 분석: 완료
-✅ RAG 검색: {len(rag_results)}개 문서
-⚠️ 파인튜닝 LLM: 비활성화됨"""
+- OpenAI 이미지 분석: 완료
+- RAG 검색: {len(rag_results)}개 문서
+- 파인튜닝 LLM: 비활성화됨"""
                 else:
                     # 텍스트 전용 질의 - RAG 결과 기반
                     final_answer = f"""**텍스트 질의 처리 결과:**
@@ -271,8 +271,8 @@ class IntegratedPipeline:
 현재 파인튜닝된 전기공학 전문 모델이 비활성화되어 있어 상세한 전문 분석을 제공할 수 없습니다.
 
 **처리 완료된 단계:**
-✅ RAG 검색: {len(rag_results)}개 문서
-⚠️ 파인튜닝 LLM: 비활성화됨
+- RAG 검색: {len(rag_results)}개 문서
+- 파인튜닝 LLM: 비활성화됨
 
 보다 전문적인 전기공학 답변이 필요하시면 시스템 관리자에게 문의해 주세요."""
             
