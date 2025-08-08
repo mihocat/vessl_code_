@@ -141,14 +141,21 @@ class UnifiedAnalysisProcessor:
                 {
                     "role": "system",
                     "content": """당신은 이미지와 텍스트를 분석하는 전문가입니다. 
-다음 형식으로 분석 결과를 제공하되, 각 섹션의 내용은 제한된 토큰 내에서 최대한 압축하여 핵심만 전달하세요:
+반드시 다음 형식을 정확히 따라 응답하세요. 각 섹션은 새로운 줄에서 시작해야 합니다:
 
-**추출된 텍스트:** [이미지에서 읽은 모든 텍스트를 200자 이내로 요약]
-**감지된 수식:** [LaTeX 형식의 주요 수식 3-5개]
-**핵심 개념:** [질문과 관련된 핵심 개념 5-8개]
-**질문 의도:** [사용자가 묻고자 하는 핵심을 한 문장으로]
+**추출된 텍스트:**
+[이미지에서 읽은 모든 텍스트를 200자 이내로 요약]
 
-중요: 전체 응답을 500토큰 이내로 압축하여 작성하세요."""
+**감지된 수식:**
+[LaTeX 형식의 주요 수식을 한 줄에 하나씩, 3-5개]
+
+**핵심 개념:**
+[질문과 관련된 핵심 개념을 쉼표로 구분하여 5-8개]
+
+**질문 의도:**
+[사용자가 묻고자 하는 핵심을 한 문장으로]
+
+각 섹션 헤더(**로 시작하는 부분)는 반드시 새로운 줄에서 시작하고, 헤더 다음 줄에 내용을 작성하세요."""
                 },
                 {
                     "role": "user",
@@ -157,10 +164,8 @@ class UnifiedAnalysisProcessor:
                             "type": "text",
                             "text": f"""질문: {question}
 
-주의사항:
-- 전체 응답은 반드시 {self.target_output_tokens}토큰 이내로 작성
-- 핵심 정보만 압축하여 전달
-- 불필요한 설명은 제외하고 요청된 형식만 준수"""
+위의 시스템 메시지에서 지정한 형식을 정확히 따라주세요.
+각 섹션(**추출된 텍스트:**, **감지된 수식:**, **핵심 개념:**, **질문 의도:**) 다음에는 반드시 줄바꿈을 하고 내용을 작성하세요."""
                         }
                     ]
                 }
@@ -191,8 +196,10 @@ class UnifiedAnalysisProcessor:
             # GPT-5 모델인 경우 특별 처리
             if "gpt-5" in self.model.lower():
                 api_params["max_completion_tokens"] = self.max_tokens
-                # GPT-5는 temperature 기본값(1)만 지원
-                # api_params["temperature"] = 1  # 기본값이므로 생략
+                # GPT-5 새로운 파라미터 추가
+                api_params["verbosity"] = "low"  # 간결한 응답을 위해 low 설정
+                api_params["reasoning_effort"] = "minimal"  # 빠른 응답을 위해 minimal 설정
+                logger.info(f"🔧 GPT-5 파라미터: verbosity=low, reasoning_effort=minimal")
             else:
                 api_params["max_tokens"] = self.max_tokens
                 api_params["temperature"] = self.temperature
@@ -314,7 +321,7 @@ class UnifiedAnalysisProcessor:
                 line = line.strip()
                 
                 # 섹션 헤더 감지 (더 유연하게)
-                if any(marker in line for marker in ["추출된 텍스트:", "추출된 텍스트：", "**추출된 텍스트**", "추출된 텍스트"]):
+                if line == "**추출된 텍스트:**" or "추출된 텍스트:" in line:
                     logger.debug(f"라인 {i}: '추출된 텍스트' 섹션 발견")
                     # 이전 섹션 저장
                     if current_section and current_content:
@@ -322,43 +329,34 @@ class UnifiedAnalysisProcessor:
                                          locals())
                     current_section = "text"
                     current_content = []
-                    # 헤더와 같은 줄에 내용이 있는 경우 처리
-                    remaining = line.replace("**추출된 텍스트**", "").replace("추출된 텍스트:", "").replace("추출된 텍스트：", "").strip()
-                    if remaining:
-                        current_content.append(remaining)
-                elif any(marker in line for marker in ["감지된 수식:", "감지된 수식：", "**감지된 수식**", "감지된 수식"]):
+                elif line == "**감지된 수식:**" or "감지된 수식:" in line:
                     logger.debug(f"라인 {i}: '감지된 수식' 섹션 발견")
                     if current_section and current_content:
                         self._save_section(current_section, '\n'.join(current_content), 
                                          locals())
                     current_section = "formula"
                     current_content = []
-                    remaining = line.replace("**감지된 수식**", "").replace("감지된 수식:", "").replace("감지된 수식：", "").strip()
-                    if remaining:
-                        current_content.append(remaining)
-                elif any(marker in line for marker in ["핵심 개념:", "핵심 개념：", "**핵심 개념**", "핵심 개념"]):
+                elif line == "**핵심 개념:**" or "핵심 개념:" in line:
                     logger.debug(f"라인 {i}: '핵심 개념' 섹션 발견")
                     if current_section and current_content:
                         self._save_section(current_section, '\n'.join(current_content), 
                                          locals())
                     current_section = "concept"
                     current_content = []
-                    remaining = line.replace("**핵심 개념**", "").replace("핵심 개념:", "").replace("핵심 개념：", "").strip()
-                    if remaining:
-                        current_content.append(remaining)
-                elif any(marker in line for marker in ["질문 의도:", "질문 의도：", "**질문 의도**", "질문 의도"]):
+                elif line == "**질문 의도:**" or "질문 의도:" in line:
                     logger.debug(f"라인 {i}: '질문 의도' 섹션 발견")
                     if current_section and current_content:
                         self._save_section(current_section, '\n'.join(current_content), 
                                          locals())
                     current_section = "intent"
                     current_content = []
-                    remaining = line.replace("**질문 의도**", "").replace("질문 의도:", "").replace("질문 의도：", "").strip()
-                    if remaining:
-                        current_content.append(remaining)
                 elif line and current_section:
                     # 현재 섹션에 내용 추가
-                    current_content.append(line)
+                    # 대괄호 제거 (GPT-5가 지시사항을 정확히 따라 대괄호를 포함할 수 있음)
+                    cleaned_line = line.strip()
+                    if cleaned_line.startswith('[') and cleaned_line.endswith(']'):
+                        cleaned_line = cleaned_line[1:-1].strip()
+                    current_content.append(cleaned_line)
                 elif line and not current_section:
                     logger.debug(f"라인 {i}: 섹션 없이 내용 발견: {line[:50]}...")
             
