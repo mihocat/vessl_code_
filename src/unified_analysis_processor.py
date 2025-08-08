@@ -178,18 +178,20 @@ class UnifiedAnalysisProcessor:
             if image is not None:
                 logger.info(f"🖼️ 이미지 포함: 처리됨")
             
-            # API 호출 - GPT-5는 max_completion_tokens 사용
+            # API 호출 - GPT-5 파라미터 호환성 처리
             api_params = {
                 "model": self.model,
-                "messages": messages,
-                "temperature": self.temperature
+                "messages": messages
             }
             
-            # GPT-5 모델인 경우 max_completion_tokens 사용
+            # GPT-5 모델인 경우 특별 처리
             if "gpt-5" in self.model.lower():
                 api_params["max_completion_tokens"] = self.max_tokens
+                # GPT-5는 temperature 기본값(1)만 지원
+                # api_params["temperature"] = 1  # 기본값이므로 생략
             else:
                 api_params["max_tokens"] = self.max_tokens
+                api_params["temperature"] = self.temperature
             
             response = self.client.chat.completions.create(**api_params)
             
