@@ -32,7 +32,8 @@ class LLMClient:
     def _setup_urls(self):
         """API 엔드포인트 설정"""
         self.health_check_url = f"{self.config.base_url}/health"
-        self.completions_url = f"{self.config.base_url}/v1/completions"
+        # vLLM은 OpenAI 호환 API 사용 (chat/completions)
+        self.completions_url = f"{self.config.base_url}/v1/chat/completions"
         
     def check_health(self) -> bool:
         """서버 상태 확인"""
@@ -139,7 +140,7 @@ class LLMClient:
         max_tokens: int, 
         temperature: float
     ) -> Dict[str, Any]:
-        """API 요청 페이로드 구성"""
+        """API 요청 페이로드 구성 - OpenAI 호환 형식"""
         # 토큰 제한을 적절하게 조정 (2048 토큰 모델 대응)
         # 프롬프트 길이에 따라 동적으로 조정
         prompt_tokens = len(prompt.split())  # 대략적인 토큰 수 추정
@@ -150,9 +151,12 @@ class LLMClient:
         else:
             max_tokens = min(max_tokens, 700)  # 짧은 프롬프트일 때 더 많이 허용
         
+        # OpenAI 호환 messages 형식으로 변경
         payload = {
             "model": self.config.model_name,
-            "prompt": prompt,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
             "max_tokens": max_tokens,
             "temperature": temperature,
             "top_p": self.config.top_p,
@@ -164,7 +168,7 @@ class LLMClient:
         # repetition_penalty 추가 (vLLM이 지원하는 경우)
         if hasattr(self.config, 'repetition_penalty'):
             payload["repetition_penalty"] = self.config.repetition_penalty
-        logger.debug(f"Building payload with model: {self.config.model_name}")
+        logger.debug(f"Building OpenAI-compatible payload with model: {self.config.model_name}")
         return payload
     
     def _make_request(self, payload: Dict[str, Any]) -> requests.Response:
@@ -176,13 +180,20 @@ class LLMClient:
         )
     
     def _extract_response(self, response: requests.Response) -> str:
-        """응답에서 텍스트 추출"""
+        """응답에서 텍스트 추출 - OpenAI 호환 형식"""
         result = response.json()
         
-        # 다양한 응답 형식 처리
-        if "choices" in result:
-            if result["choices"]:
-                return result["choices"][0].get("text", "").strip()
+        # OpenAI 호환 응답 형식 처리
+        if "choices" in result and result["choices"]:
+            choice = result["choices"][0]
+            # chat/completions 응답: message.content
+            if "message" in choice:
+                return choice["message"].get("content", "").strip()
+            # completions 응답: text (기존 호환성 유지)
+            elif "text" in choice:
+                return choice["text"].strip()
+        
+        # 기타 형식 처리 (기존 호환성)
         elif "text" in result:
             return result["text"].strip()
         elif "generated_text" in result:
