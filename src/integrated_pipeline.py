@@ -327,47 +327,58 @@ class IntegratedPipeline:
         rag_results: List[SearchResult], 
         question: str
     ) -> str:
-        """컨텍스트 구성 - 토큰 제한 고려"""
+        """컨텍스트 구성 - GPT-5 분석 결과 우선순위"""
         context_parts = []
-        max_total_length = 1500  # 전체 컨텍스트 최대 길이
+        max_total_length = 2000  # 전체 컨텍스트 최대 길이 증가
         current_length = 0
         
-        # OpenAI 분석 결과 (이미지 포함 질의인 경우에만 존재)
+        # GPT-5 분석 결과를 최우선으로 배치 (이미지 포함 질의인 경우에만 존재)
         if analysis_result is not None:
+            # GPT-5 전체 분석 텍스트를 먼저 추가 (더 많은 내용 포함)
             if hasattr(analysis_result, 'extracted_text') and analysis_result.extracted_text:
-                text = f"이미지에서 추출된 텍스트:\n{analysis_result.extracted_text[:300]}"
+                # GPT-5 분석 결과를 더 많이 포함 (300 -> 800자)
+                text = f"[GPT-5 고급 분석 결과]\n{analysis_result.extracted_text[:800]}"
                 context_parts.append(text)
                 current_length += len(text)
             
-            if hasattr(analysis_result, 'formulas') and analysis_result.formulas:
-                formulas = analysis_result.formulas[:3]  # 최대 3개 수식만
-                text = f"감지된 수식:\n" + "\n".join(formulas)
+            # 핵심 개념을 두 번째로 배치 (중요도 높음)
+            if hasattr(analysis_result, 'key_concepts') and analysis_result.key_concepts:
+                concepts = analysis_result.key_concepts[:8]  # 더 많은 개념 포함 (5 -> 8개)
+                text = f"\n[GPT-5가 파악한 핵심 개념]\n" + ", ".join(concepts)
                 if current_length + len(text) < max_total_length:
                     context_parts.append(text)
                     current_length += len(text)
             
-            if hasattr(analysis_result, 'key_concepts') and analysis_result.key_concepts:
-                concepts = analysis_result.key_concepts[:5]  # 최대 5개 개념만
-                text = f"핵심 개념:\n" + ", ".join(concepts)
+            # 수식 정보
+            if hasattr(analysis_result, 'formulas') and analysis_result.formulas:
+                formulas = analysis_result.formulas[:5]  # 더 많은 수식 포함 (3 -> 5개)
+                text = f"\n[GPT-5가 감지한 수식]\n" + "\n".join(formulas)
+                if current_length + len(text) < max_total_length:
+                    context_parts.append(text)
+                    current_length += len(text)
+            
+            # 질문 의도 분석 추가
+            if hasattr(analysis_result, 'question_intent') and analysis_result.question_intent:
+                text = f"\n[GPT-5의 질문 의도 분석]\n{analysis_result.question_intent}"
                 if current_length + len(text) < max_total_length:
                     context_parts.append(text)
                     current_length += len(text)
         
-        # RAG 검색 결과
-        if rag_results:
+        # RAG 검색 결과는 보조 자료로 축소
+        if rag_results and current_length < max_total_length - 200:
             rag_context = []
             remaining_length = max_total_length - current_length
-            per_result_length = min(300, remaining_length // min(3, len(rag_results)))
+            # RAG 결과는 2개만, 더 짧게
+            per_result_length = min(150, remaining_length // min(2, len(rag_results)))
             
-            for i, result in enumerate(rag_results[:3], 1):  # 상위 3개만
-                # SearchResult 클래스의 올바른 속성 사용: answer (content가 아님)
+            for i, result in enumerate(rag_results[:2], 1):  # 3개 -> 2개로 축소
                 truncated_answer = result.answer[:per_result_length]
                 if len(result.answer) > per_result_length:
                     truncated_answer += "..."
-                rag_context.append(f"참고자료 {i}: {truncated_answer}")
+                rag_context.append(f"보조자료 {i}: {truncated_answer}")
                 
             if rag_context:
-                context_parts.append("관련 전문 자료:\n" + "\n".join(rag_context))
+                context_parts.append("\n[RAG 검색 보조자료]\n" + "\n".join(rag_context))
         
         final_context = "\n\n".join(context_parts)
         
@@ -379,8 +390,27 @@ class IntegratedPipeline:
         return final_context
     
     def _build_prompt(self, context: str, question: str, analysis_result) -> str:
-        """프롬프트 구성"""
-        prompt = f"""다음 정보를 바탕으로 사용자의 질문에 전문적이고 정확하게 답변해주세요.
+        """프롬프트 구성 - GPT-5 분석 기반 답변 유도"""
+        # GPT-5 분석이 있는 경우 강조
+        if analysis_result is not None:
+            prompt = f"""다음 정보를 바탕으로 사용자의 질문에 답변해주세요.
+
+질문: {question}
+
+{context}
+
+답변 지침:
+1. [GPT-5 고급 분석 결과]를 최우선으로 참고하여 답변하세요
+2. GPT-5가 파악한 핵심 개념과 의도를 중심으로 설명하세요
+3. GPT-5의 분석을 기반으로 더 자세히 확장하여 설명하세요
+4. 보조자료는 GPT-5 분석을 보완하는 용도로만 활용하세요
+5. 한국어로 자연스럽고 전문적으로 답변하세요
+6. 수식이 있으면 LaTeX 형식으로 표현하세요
+
+답변:"""
+        else:
+            # GPT-5 분석이 없는 경우 (텍스트만)
+            prompt = f"""다음 정보를 바탕으로 사용자의 질문에 전문적이고 정확하게 답변해주세요.
 
 질문: {question}
 

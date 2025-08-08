@@ -55,9 +55,9 @@ class UnifiedAnalysisProcessor:
             raise ValueError("OpenAI API 키를 찾을 수 없습니다.")
         
         self.client = OpenAI(api_key=self.api_key)
-        self.model = self.config.get('unified_model', 'gpt-4.1')
-        self.max_tokens = self.config.get('max_tokens', 300)  # 분석만 수행하므로 제한
-        self.temperature = self.config.get('temperature', 0.1)
+        self.model = self.config.get('unified_model', 'gpt-5')
+        self.max_tokens = self.config.get('max_tokens', 500)  # 더 상세한 분석을 위해 증가
+        self.temperature = self.config.get('temperature', 0.3)  # 약간 더 창의적인 분석
         
         # 1회 호출 제한 추적
         self._call_count = 0
