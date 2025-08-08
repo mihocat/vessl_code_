@@ -34,6 +34,7 @@ class LLMClient:
         self.health_check_url = f"{self.config.base_url}/health"
         # vLLM은 OpenAI 호환 API 사용 (chat/completions)
         self.completions_url = f"{self.config.base_url}/v1/chat/completions"
+        self.models_url = f"{self.config.base_url}/v1/models"
         
     def check_health(self) -> bool:
         """서버 상태 확인"""
@@ -42,7 +43,27 @@ class LLMClient:
                 self.health_check_url, 
                 timeout=self.config.health_check_timeout
             )
-            return response.status_code == 200
+            is_healthy = response.status_code == 200
+            
+            # 서버가 건강하면 사용 가능한 모델 목록 확인
+            if is_healthy:
+                try:
+                    models_response = self.session.get(self.models_url, timeout=5)
+                    if models_response.status_code == 200:
+                        models_data = models_response.json()
+                        if 'data' in models_data:
+                            available_models = [m['id'] for m in models_data['data']]
+                            logger.info(f"✅ vLLM 서버 사용 가능한 모델: {available_models}")
+                            
+                            # 현재 설정된 모델이 사용 가능한지 확인
+                            if self.config.model_name not in available_models and available_models:
+                                logger.warning(f"⚠️ 설정된 모델 '{self.config.model_name}'이 서버에 없음")
+                                logger.warning(f"⚠️ 사용 가능한 첫 번째 모델로 변경: {available_models[0]}")
+                                self.config.model_name = available_models[0]
+                except Exception as e:
+                    logger.debug(f"모델 목록 확인 실패: {e}")
+            
+            return is_healthy
         except Exception as e:
             logger.debug(f"Health check failed: {e}")
             return False
@@ -78,6 +99,10 @@ class LLMClient:
             payload = self._build_payload(full_prompt, max_tokens, temperature)
             
             # API 호출
+            logger.info(f"🔗 API 요청: {self.completions_url}")
+            logger.info(f"🎯 모델명: {self.config.model_name}")
+            logger.debug(f"📦 페이로드: {payload}")
+            
             response = self._make_request(payload)
             
             if response.status_code == 200:
@@ -85,6 +110,8 @@ class LLMClient:
                 return self._post_process_response(result)
             else:
                 logger.error(f"LLM API error: {response.status_code} - {response.text}")
+                logger.error(f"요청 URL: {self.completions_url}")
+                logger.error(f"요청 모델: {self.config.model_name}")
                 return self._get_error_message()
                 
         except requests.exceptions.Timeout:
